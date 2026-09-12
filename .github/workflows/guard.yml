@@ -1,0 +1,162 @@
+name: Guard
+
+# Two cheap checks that protect a three-person team working from desktops.
+#
+# 1. Client-data / secret leak scan. Input/, REF FILE/, GENERATED OUTPUT/ and
+#    friends hold real client documents. They are gitignored, but a `git add -f`
+#    or an edited .gitignore would slip them through. This fails the build
+#    instead.
+#
+# 2. Syntax check. The repo has no runnable test suite because every Claude call
+#    needs an interactively-signed-in `claude` CLI seat, which a runner does not
+#    have. py_compile needs neither a seat nor dependencies, and it catches the
+#    exact breakage this repo just had: a teammate pulls, and the app will not
+#    start.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  leak-scan:
+    name: Client data and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Block client-data directories
+        run: |
+          echo "Scanning tracked files for client data..."
+          HITS=$(git ls-files | grep -Ei '^(Input/|REF FILE/|GENERATED OUTPUT/|CLAUDE DESKTOP GENERATED/|PRESENTATION/|LOG/|storage/runlogs/|storage/document_store/)' || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Client data is tracked in git. These paths must stay local-only."
+            echo "$HITS"
+            exit 1
+          fi
+          echo "OK - no client-data paths tracked."
+
+      - name: Block committed environment files
+        run: |
+          HITS=$(git ls-files | grep -E '(^|/)\.env$' || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::A .env file is tracked. Secrets must never be committed."
+            echo "$HITS"
+            exit 1
+          fi
+          echo "OK - no .env tracked."
+
+      - name: Scan file contents for credentials
+        run: |
+          # Skip this workflow itself so the patterns below are not self-matching.
+          FOUND=0
+          for PAT in 'sk-ant-[A-Za-z0-9_-]{16,}' 'gh[pousr]_[A-Za-z0-9]{30,}' 'AKIA[0-9A-Z]{16}' '-----BEGIN [A-Z ]*PRIVATE KEY-----'; do
+            HITS=$(git grep -nIE "$PAT" -- ':!.github/workflows/guard.yml' || true)
+            if [ -n "$HITS" ]; then
+              echo "::error::Credential pattern found: $PAT"
+              echo "$HITS"
+              FOUND=1
+            fi
+          done
+          [ $FOUND -eq 0 ] && echo "OK - no credential patterns found."
+          exit $FOUND
+
+      - name: Warn on large files
+        run: |
+          BIG=$(git ls-files -z | xargs -0 -I{} sh -c 'test -f "{}" && s=$(stat -c%s "{}") && [ $s -gt 10485760 ] && echo "$((s/1048576))MB  {}"' || true)
+          if [ -n "$BIG" ]; then
+            echo "::warning::Files over 10MB are tracked. Confirm these belong in git:"
+            echo "$BIG"
+          else
+            echo "OK - no tracked file over 10MB."
+          fi
+
+  syntax:
+    name: Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile every middleware module
+        run: |
+          # Syntax only - no pip install, no Claude seat needed.
+          python -m compileall -q middleware
+          echo "OK - all middleware modules compile."
+
+      - name: Check imports resolve to files that exist
+        run: |
+          # Catches the "teammate pulls and gets ImportError" case: a module
+          # imported from middleware/ that was never committed.
+          python - <<'PY'
+          import ast, pathlib, sys
+
+          root = pathlib.Path("middleware")
+
+          # Third-party names resolve to whatever pip installs, so they cannot be
+          # verified here. What we can verify is that every *mandatory* import is
+          # accounted for: stdlib, declared in requirements.txt, or a committed
+          # file. Anything else will ImportError on a teammate's fresh clone.
+          #
+          # pip normalises "-" and "_" to the same distribution, but the import
+          # name uses "_" (claude-agent-sdk -> claude_agent_sdk), so compare with
+          # separators stripped.
+          req = (root / "requirements.txt").read_text(encoding="utf-8", errors="replace").lower()
+          req_flat = req.replace("-", "").replace("_", "").replace(".", "")
+          stdlib = set(sys.stdlib_module_names)
+
+          def declared(name: str) -> bool:
+              return name.lower().replace("_", "").replace("-", "") in req_flat
+
+          def committed(name: str) -> bool:
+              return (root / f"{name}.py").exists() or (root / name / "__init__.py").exists()
+
+          missing = set()
+          for path in sorted(root.rglob("*.py")):
+              try:
+                  tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+              except SyntaxError:
+                  continue  # compileall already reported this
+
+              # Imports inside try/except are optional by construction (the code
+              # has a fallback path), so they are not required to be declared.
+              optional = set()
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Try):
+                      for sub in ast.walk(node):
+                          if isinstance(sub, ast.ImportFrom) and sub.module:
+                              optional.add(sub.module.split(".")[0])
+                          elif isinstance(sub, ast.Import):
+                              for alias in sub.names:
+                                  optional.add(alias.name.split(".")[0])
+
+              required = set()
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                      required.add(node.module.split(".")[0])
+                  elif isinstance(node, ast.Import):
+                      for alias in node.names:
+                          required.add(alias.name.split(".")[0])
+
+              for name in required - optional:
+                  if name in stdlib or declared(name) or committed(name):
+                      continue
+                  missing.add(
+                      f"{path}: imports '{name}' -- not stdlib, not in "
+                      f"requirements.txt, not a committed module"
+                  )
+
+          if missing:
+              print("::error::Imports that will fail on a fresh clone:")
+              print("\n".join(sorted(missing)))
+              sys.exit(1)
+          print("OK - every required import resolves to stdlib, a declared dependency, or a committed file.")
+          PY

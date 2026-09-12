@@ -6,6 +6,9 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
+# app.py imports pydantic directly for its request models, so declare it rather
+# than relying on fastapi pulling it in transitively.
+pydantic>=2.0
 
 # ── Claude Agent SDK (runs via the local `claude` CLI, authenticated against ──
 # ── the user's Claude Enterprise seat — no ANTHROPIC_API_KEY) ──────────────────
