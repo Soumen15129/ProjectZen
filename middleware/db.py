@@ -9,7 +9,9 @@ import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "storage", "documents.db")
+from paths import DB_PATH as _DB_PATH, ensure_dirs
+ensure_dirs()
+DB_PATH = str(_DB_PATH)
 
 
 async def init_db():
@@ -644,6 +646,27 @@ async def init_grounding_table():
                 uploaded_at   TEXT NOT NULL
             )
         """)
+        # Adhoc template config: the per-template system prompt and reference file
+        # that Admin -> Template Config collects. The UI for this has existed since
+        # the beginning but had no server side at all — the prompt went to
+        # localStorage (per-browser, invisible to everyone else) and the reference
+        # file POSTed a payload /upload-ref does not accept, so it 422'd and fell
+        # back to localStorage too. Nothing ever read either one back. Keyed by the
+        # template LABEL because that is what the adhoc dropdown sends.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS adhoc_template_config (
+                template      TEXT PRIMARY KEY,
+                node_id       TEXT,
+                system_prompt TEXT NOT NULL DEFAULT '',
+                ref_id        TEXT,
+                file_name     TEXT,
+                file_ext      TEXT,
+                size_kb       REAL NOT NULL DEFAULT 0,
+                redactions    TEXT NOT NULL DEFAULT '',
+                updated_by    TEXT NOT NULL DEFAULT 'admin',
+                updated_at    TEXT NOT NULL
+            )
+        """)
         # Workbook multi-slot table: config-workbook supports up to 4 reference files
         await db.execute("""
             CREATE TABLE IF NOT EXISTS workbook_slots (
@@ -785,3 +808,68 @@ async def delete_workbook_slot(slot: int) -> bool:
     except Exception as e:
         print(f"⚠ delete_workbook_slot error: {e}")
         return False
+
+
+# ── Adhoc template config ────────────────────────────────────────────────────
+
+async def save_adhoc_config(template: str, node_id: str = "", system_prompt: str = "",
+                            ref_id: str = "", file_name: str = "", file_ext: str = "",
+                            size_kb: float = 0.0, redactions: str = "",
+                            updated_by: str = "admin") -> None:
+    """
+    Upsert one template's config. A save that carries no new reference file KEEPS the
+    existing one — an admin editing the prompt must not silently drop the reference.
+    """
+    from datetime import datetime as _dt
+    async with aiosqlite.connect(DB_PATH) as db:
+        if ref_id:
+            await db.execute("""
+                INSERT INTO adhoc_template_config
+                    (template,node_id,system_prompt,ref_id,file_name,file_ext,
+                     size_kb,redactions,updated_by,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(template) DO UPDATE SET
+                    node_id=excluded.node_id, system_prompt=excluded.system_prompt,
+                    ref_id=excluded.ref_id, file_name=excluded.file_name,
+                    file_ext=excluded.file_ext, size_kb=excluded.size_kb,
+                    redactions=excluded.redactions, updated_by=excluded.updated_by,
+                    updated_at=excluded.updated_at
+            """, (template, node_id, system_prompt, ref_id, file_name, file_ext,
+                  size_kb, redactions, updated_by, _dt.utcnow().isoformat()))
+        else:
+            await db.execute("""
+                INSERT INTO adhoc_template_config
+                    (template,node_id,system_prompt,updated_by,updated_at)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(template) DO UPDATE SET
+                    node_id=excluded.node_id, system_prompt=excluded.system_prompt,
+                    updated_by=excluded.updated_by, updated_at=excluded.updated_at
+            """, (template, node_id, system_prompt, updated_by, _dt.utcnow().isoformat()))
+        await db.commit()
+
+
+async def get_adhoc_config(template: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM adhoc_template_config WHERE template = ?", (template,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def list_adhoc_configs():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM adhoc_template_config ORDER BY template"
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_adhoc_config(template: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM adhoc_template_config WHERE template = ?", (template,))
+        await db.commit()
+        return cur.rowcount > 0

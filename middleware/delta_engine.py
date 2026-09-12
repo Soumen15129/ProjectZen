@@ -15,8 +15,7 @@ import json
 import difflib
 from typing import Any, Dict, List, Optional
 
-import anthropic
-
+from llm_client import ToolSpec, run_tool_agent
 from knowledge_graph import (
     get_downstream_nodes,
     get_node,
@@ -254,8 +253,6 @@ async def analyse_delta(
     Returns:
         DeltaAnalysisResult with delta_items, affected_nodes, and delta_summary
     """
-    client = anthropic.AsyncAnthropic()
-
     source_node = get_node(node_id)
     node_label  = source_node["label"] if source_node else node_id
 
@@ -273,51 +270,26 @@ async def analyse_delta(
         f"4) return final JSON."
     )
 
-    messages: List[Dict] = [{"role": "user", "content": user_content}]
-    raw_final   = ""
-    tool_rounds = 0
-
     print(f"\n🔍 Delta Agent | node={node_id} | v{from_version} | type={input_type}")
 
-    for iteration in range(MAX_ITER):
-        print(f"   → Iter {iteration + 1}/{MAX_ITER}")
+    async def _run_tool(name: str, args: Dict) -> str:
+        return await _execute_tool(name, args, session_id)
 
-        response = await client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKS,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages,
-        )
-        messages.append({"role": "assistant", "content": response.content})
+    tool_specs = [
+        ToolSpec(t["name"], t["description"], t["input_schema"],
+                 (lambda args, _n=t["name"]: _run_tool(_n, args)))
+        for t in TOOLS
+    ]
 
-        if response.stop_reason == "end_turn":
-            for block in response.content:
-                if hasattr(block, "text"):
-                    raw_final = block.text
-            break
+    raw_final = await run_tool_agent(
+        prompt=user_content,
+        tools=tool_specs,
+        system=SYSTEM_PROMPT,
+        model=MODEL,
+        max_turns=MAX_ITER,
+    )
 
-        if response.stop_reason != "tool_use":
-            for block in response.content:
-                if hasattr(block, "text"):
-                    raw_final = block.text
-            break
-
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            tool_rounds += 1
-            print(f"   → Tool: {block.name}({json.dumps(block.input)[:100]})")
-            result = await _execute_tool(block.name, block.input, session_id)
-            tool_results.append({
-                "type":        "tool_result",
-                "tool_use_id": block.id,
-                "content":     str(result),
-            })
-        messages.append({"role": "user", "content": tool_results})
-
-    print(f"   → Delta Agent done | {tool_rounds} tool calls")
+    print(f"   → Delta Agent done")
 
     # ── Parse final JSON response ──────────────────────────────────────────
     delta_items:    List[DeltaItem]    = []

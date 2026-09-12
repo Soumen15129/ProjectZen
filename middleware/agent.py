@@ -21,11 +21,10 @@ The agent loop:
 import json
 from typing import Any, Dict, List, Optional
 
-import anthropic
-
+from llm_client import ToolSpec, run_tool_agent
 from db import search_documents, get_document, list_documents, get_content_summary
 
-MODEL    = "claude-sonnet-4-20250514"
+MODEL    = "claude-sonnet-5"
 MAX_ITER = 6   # max tool-call rounds before forcing a final answer
 
 # ── Tool definitions sent to Claude ───────────────────────────────────────
@@ -234,98 +233,58 @@ async def ask_library(
     Run the agent loop for a user question.
     Returns: { answer: str, documents: [...], tool_calls_made: int }
     """
-    client = anthropic.AsyncAnthropic()
-
-    # Build initial message
     user_content = question
     if username:
         user_content += f"\n\n[Current user: {username}]"
 
-    messages: List[Dict] = [
-        {"role": "user", "content": user_content}
-    ]
-
     documents_surfaced: List[Dict] = []   # collect docs Claude found
-    tool_calls_made = 0
-    final_answer    = ""
+    call_counter = {"n": 0}
 
     print(f"\n🤖 Agent loop started | question: {question[:80]}...")
 
-    for iteration in range(MAX_ITER):
-        print(f"   → Iteration {iteration + 1}/{MAX_ITER}")
+    async def _run_tool(name: str, args: Dict) -> str:
+        call_counter["n"] += 1
+        print(f"   → Tool call: {name}({json.dumps(args)[:120]})")
+        result = await _execute_tool(name, args, base_url)
 
-        response = await client.messages.create(
-            model      = MODEL,
-            max_tokens = 2048,
-            system     = SYSTEM_PROMPT,
-            tools      = TOOLS,
-            messages   = messages,
-        )
+        # Track documents returned by get_download_link
+        if name == "get_download_link":
+            try:
+                parsed = json.loads(result)
+                documents_surfaced.append({
+                    "file_id":      args.get("file_id"),
+                    "file_name":    parsed.get("file_name"),
+                    "download_url": parsed.get("download_url"),
+                })
+            except Exception:
+                pass
 
-        # Append assistant response to messages
-        messages.append({"role": "assistant", "content": response.content})
+        return result
 
-        # Check stop reason
-        if response.stop_reason == "end_turn":
-            # Claude is done — extract text answer
-            for block in response.content:
-                if hasattr(block, "text"):
-                    final_answer = block.text
-            print(f"   → Agent finished after {tool_calls_made} tool calls")
-            break
+    tool_specs = [
+        ToolSpec(t["name"], t["description"], t["input_schema"],
+                 (lambda args, _n=t["name"]: _run_tool(_n, args)))
+        for t in TOOLS
+    ]
 
-        if response.stop_reason != "tool_use":
-            # Unexpected stop
-            for block in response.content:
-                if hasattr(block, "text"):
-                    final_answer = block.text
-            break
+    final_answer = await run_tool_agent(
+        prompt=user_content,
+        tools=tool_specs,
+        system=SYSTEM_PROMPT,
+        model=MODEL,
+        max_turns=MAX_ITER,
+    )
 
-        # Process tool calls
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-
-            tool_calls_made += 1
-            tool_name  = block.name
-            tool_input = block.input
-            tool_id    = block.id
-
-            print(f"   → Tool call: {tool_name}({json.dumps(tool_input)[:120]})")
-
-            result = await _execute_tool(tool_name, tool_input, base_url)
-
-            # Track documents returned by get_download_link
-            if tool_name == "get_download_link":
-                try:
-                    parsed = json.loads(result)
-                    documents_surfaced.append({
-                        "file_id":      tool_input.get("file_id"),
-                        "file_name":    parsed.get("file_name"),
-                        "download_url": parsed.get("download_url"),
-                    })
-                except Exception:
-                    pass
-
-            tool_results.append({
-                "type":        "tool_result",
-                "tool_use_id": tool_id,
-                "content":     str(result),
-            })
-
-        # Append tool results as user message
-        messages.append({"role": "user", "content": tool_results})
-
-    else:
-        # Hit MAX_ITER — force a final answer from whatever we have
+    if not final_answer:
         final_answer = (
             "I searched the library but could not complete the full analysis. "
             "Please try a more specific question."
         )
+    else:
+        print(f"   → Agent finished after {call_counter['n']} tool calls")
 
     return {
         "answer":          final_answer,
         "documents":       documents_surfaced,
-        "tool_calls_made": tool_calls_made,
+        "tool_calls_made": call_counter["n"],
     }

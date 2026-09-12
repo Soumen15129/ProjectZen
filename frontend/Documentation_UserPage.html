@@ -5,46 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Document Generation Intelligence · ProjectZen</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
+/* Inter is the landing page's face (frontend/index.html) and now carries the hero here
+   too, so the two screens open with the same voice. Playfair Display is no longer
+   requested — nothing on the page uses a serif any more. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
 
 /* ═══════════════════════════════════════════════════════
    DESIGN SYSTEM — Accenture Purple × Claude Coral
    ═══════════════════════════════════════════════════════ */
 :root {
+  /* Accenture Brand */
   --acc:       #A100FF;
-  --acc-d:     #7000B2;
-  --acc-l:     #C660FF;
-  --acc-bg:    rgba(161,0,255,0.06);
-  --acc-b:     rgba(161,0,255,0.20);
-  --acc-glow:  rgba(161,0,255,0.18);
+  --acc-d:     #7500C0;
+  --acc-l:     #7E22CE;
+  --acc-bg:    #F4ECFB;
+  --acc-b:     #E4D4F5;
+  --acc-glow:  rgba(161,0,255,0.16);
+
+  /* Claude Brand */
   --claude:    #FF6B2B;
   --claude-l:  #FF9060;
-  --claude-bg: rgba(255,107,43,0.07);
-  --claude-b:  rgba(255,107,43,0.22);
-  --bg:        #070709;
-  --surface:   #0F0F14;
-  --surface2:  #161620;
-  --surface3:  #1E1E2C;
-  --border:    #1E1E2C;
-  --border2:   #28283C;
-  --border3:   #363652;
-  --text:      #F0EEF8;
-  --text2:     #C8C4DC;
-  --muted:     #6B6B90;
-  --muted2:    #3E3E58;
-  --green:     #00E5A0;
-  --green-bg:  rgba(0,229,160,0.06);
-  --green-b:   rgba(0,229,160,0.22);
-  --red:       #FF4D6A;
-  --red-bg:    rgba(255,77,106,0.07);
-  --red-b:     rgba(255,77,106,0.22);
-  --gold:      #FFB800;
-  --gold-bg:   rgba(255,184,0,0.07);
-  --gold-b:    rgba(255,184,0,0.22);
+  --claude-bg: #FFF1E9;
+  --claude-b:  #FFD9C2;
+
+  /* Neutrals */
+  --bg:        #F6F3FB;
+  --surface:   #FFFFFF;
+  --surface2:  #FAF6FE;
+  --surface3:  #F4ECFB;
+  --border:    #EAE3F2;
+  --border2:   #F0EAF6;
+  --border3:   #DED0F0;
+  --text:      #1A1620;
+  --text2:     #4A4560;
+  --muted:     #6B6577;
+  --muted2:    #7D7593;
+
+  /* Semantic */
+  --green:     #2F8F5B;
+  --green-bg:  #EDF6F0;
+  --green-b:   #A8D9B8;
+  --red:       #C0296B;
+  --red-bg:    #FCEEF3;
+  --red-b:     #F0CBD9;
+  --gold:      #92400E;
+  --gold-bg:   #FFF8EC;
+  --gold-b:    #F0D89A;
   --blue:      #4D9FFF;
-  --teal:      #00D4FF;
-  --teal-bg:   rgba(0,212,255,0.06);
-  --teal-b:    rgba(0,212,255,0.20);
+  --teal:      #0E7C86;
+  --teal-bg:   #E4F2F3;
+  --teal-b:    #BFE3E6;
+
+  /* Supplemental — matches documentation_governance.html */
+  --purple:    #7500C0;
+  --purple-bg: #F4ECFB;
+  --purple-b:  #E4D4F5;
+  --input-bg:  var(--surface2);
+  --card:      var(--surface);
+
+  /* A light ground needs shadows where the dark theme used glows. */
+  --shadow:    0 1px 2px rgba(70,0,115,.04), 0 8px 24px rgba(70,0,115,.06);
+  --shadow-lg: 0 12px 40px rgba(70,0,115,.14);
+
+  /* INK VARIANTS — for small text sitting on a pale tint of the same hue.
+     The brand values are correct for borders, fills and buttons, but as 9-11px
+     label text on their own tinted background they fail WCAG AA on a light ground:
+       --claude on --claude-bg  2.57:1      --blue on white  2.72:1
+     These darkened twins clear 4.5:1 without leaving the brand family. Use the
+     brand token for the fill and border, the ink token for the glyphs. */
+  --claude-ink: #B8460E;   /* 4.85:1 on --claude-bg */
+  --blue-ink:   #1D4ED8;   /* 6.70:1 on white       */
+  --green-ink:  #25764A;   /* 5.05:1 on --green-bg  */
+
+  /* Type stacks, named as on the landing page and documentation_governance.html.
+     --sans is referenced by .hero-title; an undefined custom property would make the
+     whole font-family declaration invalid at computed-value time, not just skip it. */
+  --sans: 'Inter', 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'DM Mono', ui-monospace, 'Cascadia Code', Consolas, Menlo, monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -60,17 +97,19 @@ body {
 body::before {
   content: '';
   position: fixed; inset: 0;
+  /* Kept as ambient wash, but at a third of the dark theme's strength: the same
+     opacity that read as a subtle glow on near-black turns muddy on #F6F3FB. */
   background:
-    radial-gradient(ellipse 80% 60% at -10% -20%, rgba(161,0,255,0.12) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 50% at 110% 110%, rgba(255,107,43,0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 30% at 50% 0%,   rgba(161,0,255,0.06) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 60% at -10% -20%, rgba(161,0,255,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 110% 110%, rgba(255,107,43,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 30% at 50% 0%,   rgba(161,0,255,0.02) 0%, transparent 60%);
   pointer-events: none; z-index: 0;
 }
 
 /* ── TOPBAR ── */
 .topbar {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(7,7,9,0.85);
+  background: rgba(255,255,255,0.85);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border2);
   display: flex; align-items: center; gap: 14px;
@@ -126,12 +165,18 @@ body::before {
   font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
   color: var(--acc-l); margin-bottom: 14px;
 }
+/* Typography matched to the landing page's .hero h1 (frontend/index.html): Inter 900
+   at a -0.04em track and 1.1 leading. The Playfair Display serif this replaced was
+   the one element on the page that did not belong to the rest of the product. */
 .hero-title {
-  font-family: 'Playfair Display', serif;
-  font-size: clamp(28px, 5vw, 42px); font-weight: 900; line-height: 1.18;
+  font-family: 'Inter', var(--sans);
+  font-size: clamp(2rem, 3.5vw, 2.8rem); font-weight: 900;
+  letter-spacing: -0.04em; line-height: 1.1;
   color: var(--text); margin-bottom: 12px;
 }
-.hero-title em { font-style: italic; color: var(--acc-l); }
+/* Inter has no true italic at 900 that reads well here, so the emphasis is carried
+   by colour and weight rather than a slant. */
+.hero-title em { font-style: normal; color: var(--acc-l); }
 .hero-sub { font-size: 15px; color: var(--text2); max-width: 560px; margin: 0 auto 18px; line-height: 1.65; }
 .hero-badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .hero-badge {
@@ -179,7 +224,9 @@ body::before {
 }
 .label-txt { font-weight: 600; font-size: 14px; color: var(--text); }
 .badge { padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600; }
-.badge-req { background: rgba(255,107,43,.12); color: var(--claude-l); border: 1px solid var(--claude-b); }
+/* --claude-l (#FF9060) was legible on near-black; on a pale tint it fails contrast,
+   so the badge and chips below use the full-strength --claude instead. */
+.badge-req { background: var(--claude-bg); color: var(--claude-ink); border: 1px solid var(--claude-b); }
 .badge-opt { background: var(--acc-bg); color: var(--acc-l); border: 1px solid var(--acc-b); }
 
 /* ── SELECT & INPUTS ── */
@@ -208,12 +255,14 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
 .dz-sub { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
 .type-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
 .chip { padding: 2px 7px; border-radius: 4px; font-size: 9px; font-weight: 700; letter-spacing: .04em; }
-.chip.doc { background: rgba(77,159,255,.12); color: #4d9fff; }
-.chip.xl  { background: rgba(0,229,160,.10);  color: #00e5a0; }
-.chip.ppt { background: rgba(255,107,43,.12); color: var(--claude-l); }
-.chip.pdf { background: rgba(255,77,106,.12); color: var(--red); }
-.chip.txt { background: rgba(161,0,255,.10);  color: var(--acc-l); }
-.chip.dat { background: rgba(255,184,0,.10);  color: var(--gold); }
+/* Format chips: tinted background from the token set, full-strength ink for contrast.
+   The neon literals (#4d9fff, #00e5a0) these replaced were unreadable on a pale tint. */
+.chip.doc { background: rgba(77,159,255,.14); color: var(--blue-ink); }
+.chip.xl  { background: var(--green-bg);      color: var(--green-ink); }
+.chip.ppt { background: var(--claude-bg);     color: var(--claude-ink); }
+.chip.pdf { background: var(--red-bg);        color: var(--red); }
+.chip.txt { background: var(--acc-bg);        color: var(--acc-l); }
+.chip.dat { background: var(--gold-bg);       color: var(--gold); }
 input[type="file"] { display: none; }
 
 /* ── FILE CHIP ── */
@@ -285,12 +334,12 @@ input[type="file"] { display: none; }
 .r-preview { background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 13px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text2); line-height: 1.7; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
 .dl-btn {
   display: inline-flex; align-items: center; gap: 8px;
-  background: linear-gradient(135deg, var(--green), #00b87c);
+  background: linear-gradient(135deg, var(--green), #256F47);
   color: #fff; border: none; border-radius: 10px; padding: 10px 20px;
   font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none;
   transition: all .2s; align-self: flex-start;
 }
-.dl-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,229,160,.35); }
+.dl-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(47,143,91,.28); }
 
 /* ── GENERATE BUTTON ── */
 .gen-btn-row { display: flex; gap: 10px; margin-top: 6px; }
@@ -338,11 +387,11 @@ input[type="file"] { display: none; }
 .lib-fname { font-weight: 600; color: var(--text); font-size: 12px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-template { font-size: 10px; color: var(--muted); margin-top: 1px; }
 .lib-fmt-chip { padding: 2px 7px; border-radius: 4px; font-size: 9px; font-weight: 700; }
-.lib-fmt-xlsx { background: rgba(0,229,160,.10); color: var(--green); }
-.lib-fmt-docx { background: rgba(77,159,255,.10); color: var(--blue); }
-.lib-fmt-pdf  { background: rgba(255,77,106,.10); color: var(--red); }
-.lib-fmt-pptx { background: rgba(255,107,43,.10); color: var(--claude-l); }
-.lib-fmt-xml  { background: rgba(255,184,0,.10);  color: var(--gold); }
+.lib-fmt-xlsx { background: var(--green-bg); color: var(--green-ink); }
+.lib-fmt-docx { background: rgba(77,159,255,.14); color: var(--blue-ink); }
+.lib-fmt-pdf  { background: var(--red-bg); color: var(--red); }
+.lib-fmt-pptx { background: var(--claude-bg); color: var(--claude-ink); }
+.lib-fmt-xml  { background: var(--gold-bg);  color: var(--gold); }
 .lib-dl-btn { background: none; border: 1px solid var(--border2); border-radius: 6px; color: var(--text2); padding: 3px 10px; font-size: 11px; cursor: pointer; }
 .lib-dl-btn:hover { border-color: var(--green-b); color: var(--green); }
 .lib-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -364,7 +413,7 @@ table { overflow-x: auto; }
 .turn-badge { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; flex-shrink: 0; margin-top: 2px; }
 .turn-badge.t1 { background: var(--acc-bg); color: var(--acc-l); }
 .turn-badge.t2 { background: var(--teal-bg); color: var(--teal); }
-.turn-badge.t3 { background: var(--claude-bg); color: var(--claude-l); }
+.turn-badge.t3 { background: var(--claude-bg); color: var(--claude-ink); }
 .turn-content { flex: 1; min-width: 0; }
 .turn-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
 .turn-summary { font-size: 12px; color: var(--text2); line-height: 1.5; }
@@ -430,7 +479,7 @@ table { overflow-x: auto; }
 .casc-item.running .casc-item-dot { animation: blink .8s infinite; }
 .casc-dl-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .casc-dl-btn { display: flex; align-items: center; gap: 6px; background: var(--green-bg); border: 1px solid var(--green-b); border-radius: 8px; padding: 6px 12px; font-size: 11px; color: var(--green); cursor: pointer; text-decoration: none; }
-.casc-dl-btn:hover { background: rgba(0,229,160,.15); }
+.casc-dl-btn:hover { background: var(--green-bg); }
 
 /* ── META TOAST (conversation memory) ── */
 .meta-toast { display: none; align-items: flex-start; gap: 10px; background: var(--teal-bg); border: 1px solid var(--teal-b); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
@@ -448,7 +497,7 @@ table { overflow-x: auto; }
   background: var(--surface2); border: 1px solid var(--border2);
   border-radius: 12px; padding: 10px 20px; font-size: 13px; font-weight: 600;
   color: var(--text); z-index: 999; opacity: 0; transition: all .3s; pointer-events: none;
-  max-width: 90vw; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  max-width: 90vw; text-align: center; box-shadow: var(--shadow-lg);
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -493,7 +542,7 @@ table { overflow-x: auto; }
 .casc-prog-bar { height:100%; background:linear-gradient(90deg,var(--acc),var(--acc-l)); border-radius:3px; transition:width .4s; width:0; }
 .casc-graph-wrap { height:380px; border:1px solid var(--border2); border-radius:12px; background:var(--surface); position:relative; overflow:hidden; margin:14px 0; }
 .casc-graph-ctrl { position:absolute; top:10px; right:10px; z-index:10; display:flex; gap:6px; }
-.casc-graph-ctrl button { background:rgba(15,15,20,.8); border:1px solid var(--border2); color:var(--text2); border-radius:7px; padding:5px 10px; font-size:11px; cursor:pointer; transition:all .2s; backdrop-filter:blur(6px); }
+.casc-graph-ctrl button { background:var(--surface); border:1px solid var(--border2); color:var(--text2); border-radius:7px; padding:5px 10px; font-size:11px; cursor:pointer; transition:all .2s; backdrop-filter:blur(6px); }
 .casc-graph-ctrl button:hover { border-color:var(--acc-b); color:var(--acc-l); }
 #cascGraphCy { width:100%; height:100%; }
 
@@ -515,19 +564,44 @@ table { overflow-x: auto; }
 .delta-sess-item.on { border-color:var(--acc); background:var(--acc-bg); }
 .delta-scope-panel { background:var(--gold-bg); border:1px solid var(--gold-b); border-radius:10px; padding:12px 14px; margin:10px 0; }
 .delta-scope-title { font-size:11px; font-weight:700; color:var(--gold); margin-bottom:8px; }
-.delta-scope-node { display:flex; gap:8px; align-items:center; padding:5px 8px; border-radius:6px; background:rgba(255,184,0,.05); margin-bottom:4px; font-size:11px; color:var(--text2); }
-.delta-scope-node-id { font-family:'DM Mono',monospace; font-size:10px; color:var(--gold); background:rgba(255,184,0,.1); border-radius:4px; padding:2px 5px; }
+.delta-scope-node { display:flex; gap:8px; align-items:center; padding:5px 8px; border-radius:6px; background:var(--gold-bg); margin-bottom:4px; font-size:11px; color:var(--text2); }
+.delta-scope-node-id { font-family:'DM Mono',monospace; font-size:10px; color:var(--gold); background:var(--gold-bg); border-radius:4px; padding:2px 5px; }
 
 /* ── GROUNDING GRAPH ── */
-.grnd-graph-wrap { height:480px; border:1px solid var(--border2); border-radius:12px; background:var(--surface); position:relative; overflow:hidden; margin:14px 0; }
+/* Accenture-purple canvas: a fine dot lattice over a pale violet ground, with a
+   soft accent wash in the top-left. Cytoscape draws to a transparent canvas, so
+   this shows through behind the nodes.
+   Opacity is deliberately low — at anything stronger the 9px node labels start
+   competing with the lattice for attention. */
+.grnd-graph-wrap {
+  height:480px; border:1px solid var(--border2); border-radius:12px;
+  position:relative; overflow:hidden; margin:14px 0;
+  background-color:#FCFAFE;
+  background-image:
+    radial-gradient(ellipse 70% 55% at 0% 0%,   rgba(161,0,255,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(117,0,192,0.05) 0%, transparent 55%),
+    radial-gradient(circle at 1px 1px, rgba(161,0,255,0.16) 1px, transparent 0);
+  background-size: 100% 100%, 100% 100%, 18px 18px;
+}
 .grnd-graph-wrap.fullscreen { position:fixed; inset:0; z-index:9000; border-radius:0; height:100vh; }
-#grndGraphCy { width:100%; height:100%; }
+#grndGraphCy { width:100%; height:100%; position:relative; z-index:1; }
 .grnd-ctrl { position:absolute; top:10px; right:10px; z-index:10; display:flex; gap:6px; }
-.grnd-ctrl button { background:rgba(15,15,20,.8); border:1px solid var(--border2); color:var(--text2); border-radius:7px; padding:5px 10px; font-size:11px; cursor:pointer; transition:all .2s; backdrop-filter:blur(6px); }
+.grnd-ctrl button { background:rgba(255,255,255,.9); border:1px solid var(--border2); color:var(--text2); border-radius:7px; padding:5px 10px; font-size:11px; cursor:pointer; transition:all .2s; backdrop-filter:blur(6px); }
 .grnd-ctrl button:hover { border-color:var(--acc-b); color:var(--acc-l); }
-.grnd-legend { position:absolute; bottom:10px; left:10px; z-index:10; display:flex; flex-direction:column; gap:4px; }
+/* The way OUT of fullscreen. The ⛶ Fullscreen button sits in the card header, which
+   the overlay covers at z-index 9000, so it cannot double as the exit — this button
+   lives inside the wrapper and is revealed only while fullscreen is on. Escape works
+   too; see the keydown handler by groundingToggleFullscreen(). */
+.grnd-ctrl .fs-exit { display:none; }
+.grnd-graph-wrap.fullscreen .grnd-ctrl .fs-exit { display:inline-block; background:var(--acc-l); border-color:var(--acc-l); color:#fff; font-weight:700; }
+.grnd-graph-wrap.fullscreen .grnd-ctrl .fs-exit:hover { background:var(--acc-d); border-color:var(--acc-d); color:#fff; }
+/* Legend and controls sit ON the pattern, so they need their own ground. */
+.grnd-legend { position:absolute; bottom:10px; left:10px; z-index:10; display:flex; flex-direction:column; gap:4px;
+  background:rgba(255,255,255,.88); backdrop-filter:blur(6px);
+  border:1px solid var(--border2); border-radius:9px; padding:8px 11px; }
 .grnd-legend-item { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--text2); }
 .grnd-legend-dot { width:10px; height:10px; border-radius:50%; }
+.grnd-legend-sep { height:1px; background:var(--border2); margin:3px 0; }
 
 .grnd-drawer { position:fixed; right:0; top:0; bottom:0; width:340px; background:var(--surface); border-left:1px solid var(--border2); z-index:9500; transform:translateX(100%); transition:transform .3s; display:flex; flex-direction:column; }
 .grnd-drawer.open { transform:translateX(0); }
@@ -565,7 +639,7 @@ table { overflow-x: auto; }
 .tmpl-editor-title { font-size:13px; font-weight:700; color:var(--acc-l); margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .save-prompt-btn { padding:9px 20px; font-size:12px; font-weight:700; background:var(--acc); border:1px solid var(--acc-d); color:#fff; border-radius:8px; cursor:pointer; transition:all .2s; }
 .save-prompt-btn:hover { background:var(--acc-d); }
-.save-prompt-btn.save-btn-success { background:var(--green)!important; border-color:var(--green)!important; color:#fff!important; box-shadow:0 4px 14px rgba(0,229,160,.35)!important; }
+.save-prompt-btn.save-btn-success { background:var(--green)!important; border-color:var(--green)!important; color:#fff!important; box-shadow:0 4px 14px rgba(47,143,91,.28)!important; }
 .saved-indicator { display:none; align-items:center; gap:6px; font-size:11px; color:var(--green); padding:4px 10px; background:var(--green-bg); border:1px solid var(--green-b); border-radius:6px; }
 .saved-indicator.show { display:flex; }
 </style>
@@ -583,7 +657,7 @@ table { overflow-x: auto; }
   </div>
   <div class="topbar-sep"></div>
   <div class="srv-row">
-    <input id="serverUrl" type="text" value="http://localhost:8000" placeholder="http://localhost:8000" />
+    <input id="serverUrl" type="text" value="http://localhost:8001" placeholder="http://localhost:8001" />
     <button class="srv-ping" onclick="pingServer()">
       <span class="sdot" id="sdot"></span><span id="slabel">Check</span>
     </button>
@@ -599,16 +673,15 @@ table { overflow-x: auto; }
 
   <!-- HERO -->
   <div class="hero">
-    <div class="hero-eyebrow">Powered by Claude AI · ProjectZen</div>
-    <h1 class="hero-title">Generate <em>any document</em>,<br>with enterprise precision.</h1>
-    <p class="hero-sub">Select a Template, describe your project, upload your data — and let Claude build a fully structured, professional document instantly.</p>
+    <div class="hero-eyebrow">Admin Console · ProjectZen</div>
+    <h1 class="hero-title">Set the <em>standard</em> once,<br>every document follows.</h1>
+    <p class="hero-sub">Attach reference templates, tune system prompts and ground the knowledge graph. Everything ProjectZen generates inherits what you define here.</p>
     <div class="hero-badges">
-      <div class="hero-badge">📊 Excel</div>
-      <div class="hero-badge">📝 Word</div>
-      <div class="hero-badge">📕 PDF</div>
-      <div class="hero-badge">🎞️ PowerPoint</div>
-      <div class="hero-badge">🗂️ XML</div>
-      <div class="hero-badge">30+ Templates</div>
+      <div class="hero-badge">✦ Template Config</div>
+      <div class="hero-badge">🔗 Knowledge Graph</div>
+      <div class="hero-badge">📕 Workbook Grounding</div>
+      <div class="hero-badge">📐 Reference Templates</div>
+      <div class="hero-badge">⚙ System Prompts</div>
     </div>
   </div>
 
@@ -666,12 +739,9 @@ table { overflow-x: auto; }
           <option>Config Specs</option>
           <option>Integration TD</option>
         </optgroup>
-        <optgroup label="Data Models">
-          <option>Data model (XML) → Workbook</option>
-          <option>Workbook → Data model (XML)</option>
-          <option>Data model CSF (XML) → Workbook</option>
-          <option>Workbook → Data model CSF (XML)</option>
-        </optgroup>
+        <!-- "Data Models" optgroup removed: the four XML/workbook converters are not
+             documents and are no longer offered in any adhoc template list. They are
+             reached through the Data Model Agent tile instead. -->
         <optgroup label="Testing">
           <option>Unit Test Case</option>
           <option>Test Strategy</option>
@@ -776,7 +846,9 @@ Examples:
             <span class="chip txt">txt</span><span class="chip txt">md</span><span class="chip dat">json</span>
           </div>
         </div>
-        <input type="file" id="fi-user-ref" accept=".xlsx,.xls,.csv,.txt,.md,.json,.docx,.doc,.pdf,.pptx,.ppt,.xml" onchange="handleUserRefFile(this.files[0])" />
+        <!-- Reference types are limited to formats we can read as a structure and
+             also emit; legacy .ppt/.doc/.xls cannot be opened at all. -->
+        <input type="file" id="fi-user-ref" accept=".xlsx,.docx,.pptx,.pdf,.xml" onchange="handleUserRefFile(this.files[0])" />
         <div class="file-chip purple" id="chip-user-ref">
           <span class="fc-ico" id="chipico-user-ref">📄</span>
           <div class="fc-info">
@@ -932,7 +1004,7 @@ Examples:
       <div class="card-label">
         <span class="step-n">🔍</span>
         <span class="label-txt">Ask the Document Library</span>
-        <span class="badge" style="background:rgba(99,102,241,.15);color:#818cf8;border:1px solid #4f46e5">Agentic</span>
+        <span class="badge" style="background:#EEF0FE;color:#4338CA;border:1px solid #C7CCF7">Agentic</span>
       </div>
       <div class="ask-wrap">
         <div class="ask-examples" id="askExamples">
@@ -1105,8 +1177,8 @@ Examples:
 
     <!-- ADMIN SUB-TABS -->
     <div class="admin-sub-tabs">
-      <button class="admin-sub-tab on" id="adminTabTmpl"   onclick="switchAdminTab('tmpl')">⚙ Template Config</button>
-      <button class="admin-sub-tab"   id="adminTabGround" onclick="switchAdminTab('ground')">🔗 Document Grounding</button>
+      <button class="admin-sub-tab on" id="adminTabTmpl"   onclick="switchAdminTab('tmpl')">⚙ Template Config [Adhoc]</button>
+      <button class="admin-sub-tab"   id="adminTabGround" onclick="switchAdminTab('ground')">🔗 Document Grounding [Cascade]</button>
     </div>
 
     <!-- ── Template Config ── -->
@@ -1120,34 +1192,37 @@ Examples:
 
         <select id="adminTmplSelect" onchange="adminLoadTemplate()" style="margin-bottom:14px">
           <option value="">— Select Template —</option>
-          <optgroup label="Project Management">
-            <option>Project Plan</option><option>Communication Plan</option>
-            <option>Governance Matrix</option><option>Weekly Status Report</option>
-            <option>Steering Committee Status Report</option>
+          <optgroup label="Governance Documentation">
+            <option>Project Plan</option><option>Governance Matrix</option>
           </optgroup>
-          <optgroup label="Risk &amp; Issues"><option>Risk/Issue Log</option></optgroup>
-          <optgroup label="Onboarding &amp; Milestones">
-            <option>Onboarding PPT</option><option>Milestone Signoff Format</option>
+          <optgroup label="Functional Documentation">
+            <option>Data Migration Strategy</option><option>Integration Strategy</option>
+            <option>Test Strategy</option><option>Cutover Strategy</option>
+            <option>Training Strategy</option><option>Workshop Notes</option>
+            <option>RTM</option>
           </optgroup>
-          <optgroup label="SAP / Functional">
-            <option>RTM</option><option>To-Be Process</option><option>Fit-Gap</option>
-            <option>Solution Design</option><option>Interface List</option>
-            <option>Integration Strategy</option><option>Data Migration Strategy</option>
-            <option>Functional Spec Document</option><option>Config Specs</option><option>Integration TD</option>
+          <optgroup label="Test Script Generator">
+            <option>Test Script</option>
           </optgroup>
-          <optgroup label="Data Models">
-            <option>Data model (XML) → Workbook</option><option>Workbook → Data model (XML)</option>
-            <option>Data model CSF (XML) → Workbook</option><option>Workbook → Data model CSF (XML)</option>
+          <!-- The Data Model Agent grounds on FOUR reference structures, one per SAP
+               data model. These names are the routing keys in
+               data_model_agent.TEMPLATE_KEYS — renaming one here silently unconfigures
+               that model, so they must match exactly. Upload the real data-model XML
+               exported from a tenant as each one's reference file. -->
+          <optgroup label="Data Model Agent (reference structures)">
+            <option>Data Model / Succession</option>
+            <option>Data Model / CSF Succession</option>
+            <option>Data Model / Corporate</option>
+            <option>Data Model / CSF Corporate</option>
           </optgroup>
-          <optgroup label="Testing">
-            <option>Unit Test Case</option><option>Test Strategy</option><option>Test Cases</option>
-            <option>Defect Log</option><option>Integration Test Case</option><option>UAT Test Case</option>
-          </optgroup>
-          <optgroup label="Go-Live &amp; Hypercare">
-            <option>Cutover Plan</option><option>Go-Live Checklist</option><option>Hypercare Tracker</option>
-          </optgroup>
-          <optgroup label="Knowledge Transfer">
-            <option>Train the Trainer Plan</option><option>KT Plan</option>
+          <!-- The deterministic converters took no grounding and no system prompt, so
+               configuring them here was always a no-op. Removed with the rest. -->
+          <!-- Workbook Generator does NOT use adhoc_config: a workbook needs a module,
+               a workbook type, possibly several files and a country-filter flag, which
+               one-prompt-plus-one-file cannot express. Selecting this swaps the editor
+               below for the workbook panel. -->
+          <optgroup label="Workbook Generator">
+            <option>Workbook Generator</option>
           </optgroup>
         </select>
 
@@ -1172,7 +1247,7 @@ Examples:
               <div class="dz-title">Drop reference file or click to browse</div>
               <div id="tmplRefChosen" style="font-size:12px;color:var(--green);margin-top:6px;font-weight:600"></div>
             </div>
-            <input type="file" id="tmplRefIn" onchange="tmplRefSet(this.files[0])">
+            <input type="file" id="tmplRefIn" accept=".xlsx,.docx,.pptx,.pdf,.xml" onchange="tmplRefSet(this.files[0])">
             <div class="ref-info" id="tmplExistingRef" style="display:none;margin-top:8px">
               <span>📎</span><span id="tmplExistingRefTxt"></span>
             </div>
@@ -1183,6 +1258,67 @@ Examples:
             <div class="saved-indicator" id="tmplSavedIndicator">✓ Saved</div>
           </div>
         </div>
+
+        <!-- ── Workbook Generator grounding ──────────────────────────────────
+             Shown instead of the prompt/reference editor when "Workbook
+             Generator" is selected. Grounds into grounding_docs under
+             workbook:<MODULE>:<workbook>, which no existing consumer reads. -->
+        <div class="tmpl-editor" id="wbAdminPanel" style="display:none">
+          <div class="tmpl-editor-title"><span>&#128213;</span><span>Configuration Workbook Grounding</span></div>
+
+          <p style="font-size:12px;color:var(--muted);margin:0 0 12px">
+            Choose the module and workbook this reference file belongs to. Users then pick the
+            same pair on the Workbook Generator page.
+          </p>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Module</div>
+              <select id="wbAdmModule" onchange="wbAdmModuleChange()" style="width:100%">
+                <option value="">Loading&hellip;</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Workbook</div>
+              <select id="wbAdmWorkbook" onchange="wbAdmWorkbookChange()" disabled style="width:100%">
+                <option value="">Select a module first</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="wbAdmExisting" style="margin-top:12px"></div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.05em">Reference Workbook</div>
+          <div class="drop-zone" id="wbAdmDZ"
+               onclick="document.getElementById('wbAdmFile').click()"
+               ondragover="event.preventDefault();this.classList.add('drag')"
+               ondragleave="this.classList.remove('drag')"
+               ondrop="event.preventDefault();this.classList.remove('drag');wbAdmDrop(event)">
+            <input type="file" id="wbAdmFile" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="wbAdmFileChosen(event)"/>
+            <span class="dz-icon">&#128213;</span>
+            <div class="dz-title">Drop workbook or click to browse</div>
+            <div class="dz-sub">XLSX &middot; XLSM &middot; XLS &mdash; data models are grounded under Data Model Agent</div>
+            <div id="wbAdmChosen" style="font-size:12px;color:var(--green);margin-top:6px;font-weight:600"></div>
+          </div>
+
+          <label style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;cursor:pointer">
+            <input type="checkbox" id="wbAdmCF" style="margin-top:3px"/>
+            <span style="font-size:12.5px">
+              <strong>Filter this workbook by country</strong>
+              <span id="wbAdmCFHint" style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px">
+                Detected automatically after upload. Untick when the country column is only a
+                picklist rather than country-specific configuration.
+              </span>
+            </span>
+          </label>
+
+          <div id="wbAdmMsg" style="margin-top:10px"></div>
+
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+            <button class="save-prompt-btn" id="wbAdmSave" onclick="wbAdmGround()" disabled>&#128190; Ground Workbook</button>
+            <div class="saved-indicator" id="wbAdmSaved">&#10003; Grounded</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1191,7 +1327,7 @@ Examples:
       <div class="card">
         <div class="card-label">
           <span class="step-n" style="background:var(--teal-bg);border-color:var(--teal-b);color:var(--teal)">🔗</span>
-          <span class="label-txt">Document Grounding — Knowledge Graph</span>
+          <span class="label-txt">Document Grounding — Knowledge Graph / Document Map</span>
           <button class="casc-sel-btn" style="margin-left:auto" onclick="groundingInit()">↺ Refresh</button>
           <button class="casc-sel-btn" onclick="groundingToggleFullscreen()">⛶ Fullscreen</button>
         </div>
@@ -1203,6 +1339,7 @@ Examples:
             <button onclick="if(_grndCy)_grndCy.fit()">Fit</button>
             <button onclick="if(_grndCy)_grndCy.zoom(_grndCy.zoom()*1.3)">+</button>
             <button onclick="if(_grndCy)_grndCy.zoom(_grndCy.zoom()*.77)">−</button>
+            <button class="fs-exit" onclick="groundingToggleFullscreen()" title="Exit fullscreen (Esc)">✕ Exit fullscreen</button>
           </div>
           <div id="grndGraphCy"></div>
           <!-- legend -->
@@ -1212,6 +1349,9 @@ Examples:
             <div class="grnd-legend-item"><div class="grnd-legend-dot" style="background:#ef9f27"></div> Design-Build</div>
             <div class="grnd-legend-item"><div class="grnd-legend-dot" style="background:#f0997b"></div> Integrate</div>
             <div class="grnd-legend-item"><div class="grnd-legend-dot" style="background:#97c459"></div> Deploy</div>
+            <div class="grnd-legend-sep"></div>
+            <div class="grnd-legend-item"><div class="grnd-legend-dot" style="background:#C62828"></div> Selected</div>
+            <div class="grnd-legend-item"><div class="grnd-legend-dot" style="background:#FCE4E4;border:1px solid #E38A8A"></div> Direct children</div>
           </div>
         </div>
 
@@ -1380,7 +1520,10 @@ const srv  = () => document.getElementById('serverUrl').value.replace(/\/$/, '')
 const uname= () => document.getElementById('usernameInput').value.trim() || 'user';
 
 (function(){
-  const isLocal=['localhost','127.0.0.1'].includes(location.hostname);
+  // Opening this file directly (file://) has an empty location.hostname —
+  // treat that the same as localhost/127.0.0.1, not as "deployed elsewhere",
+  // otherwise every reopen silently overwrites the field back to the cloud URL.
+  const isLocal=['localhost','127.0.0.1',''].includes(location.hostname);
   if(!isLocal) document.getElementById('serverUrl').value='https://projectzen-cloudui.fly.dev';
 })();
 const delay= ms => new Promise(r => setTimeout(r, ms));
@@ -2026,16 +2169,18 @@ function buildCascCyStyle(){
     { selector:'node', style:{ 'label':'data(label)', 'text-wrap':'wrap', 'text-max-width':'80px',
       'font-size':'9px', 'font-family':'DM Sans,sans-serif', 'text-valign':'center', 'text-halign':'center',
       'width':'80px', 'height':'34px', 'shape':'roundrectangle',
-      'background-color':'#1E1E2C', 'border-color':'#28283C', 'border-width':1.5, 'color':'#C8C4DC' }},
+      'background-color':'#FFFFFF', 'border-color':'#DED0F0', 'border-width':1.5, 'color':'#4A4560' }},
     { selector:'edge', style:{ 'curve-style':'bezier', 'target-arrow-shape':'triangle',
-      'line-color':'#363652', 'target-arrow-color':'#363652', 'width':1.5, 'opacity':.7 }},
-    { selector:'.node-queued', style:{ 'background-color':'#161620', 'border-color':'#363652', 'color':'#6B6B90' }},
-    { selector:'.node-running', style:{ 'background-color':'rgba(161,0,255,.15)', 'border-color':'#A100FF', 'color':'#C660FF', 'border-width':2 }},
-    { selector:'.node-done',    style:{ 'background-color':'rgba(0,229,160,.12)', 'border-color':'#00E5A0', 'color':'#00E5A0' }},
-    { selector:'.node-error',   style:{ 'background-color':'rgba(255,77,106,.12)', 'border-color':'#FF4D6A', 'color':'#FF4D6A' }},
+      'line-color':'#C9BBDE', 'target-arrow-color':'#C9BBDE', 'width':1.5, 'opacity':.85 }},
+    { selector:'.node-queued', style:{ 'background-color':'#FAF6FE', 'border-color':'#EAE3F2', 'color':'#7D7593' }},
+    { selector:'.node-running', style:{ 'background-color':'#F4ECFB', 'border-color':'#A100FF', 'color':'#7500C0', 'border-width':2 }},
+    { selector:'.node-done',    style:{ 'background-color':'#EDF6F0', 'border-color':'#2F8F5B', 'color':'#256F47' }},
+    { selector:'.node-error',   style:{ 'background-color':'#FCEEF3', 'border-color':'#C0296B', 'color':'#C0296B' }},
   ];
   Object.entries(PHASE_COLORS).forEach(([ph,c])=>{
-    base.push({ selector:`[phase="${ph}"]`, style:{ 'background-color':c.bg+'22', 'border-color':c.border, 'color':c.text }});
+    // Ink is the BORDER colour, not c.text: c.text is near-white, which was right on a
+    // dark canvas but vanishes against the 13%-alpha tint used as the node fill here.
+    base.push({ selector:`[phase="${ph}"]`, style:{ 'background-color':c.bg+'22', 'border-color':c.border, 'color':c.border }});
   });
   return base;
 }
@@ -2137,9 +2282,9 @@ function cascBuildDownloadGraph(){
       { selector:'node', style:{ 'label':'data(label)', 'text-wrap':'wrap', 'text-max-width':'70px',
         'font-size':'9px', 'text-valign':'center', 'text-halign':'center',
         'width':'70px', 'height':'30px', 'shape':'roundrectangle',
-        'background-color':'rgba(0,229,160,.12)', 'border-color':'#00E5A0', 'border-width':1.5, 'color':'#00E5A0' }},
-      { selector:'[state="error"]', style:{ 'background-color':'rgba(255,77,106,.12)', 'border-color':'#FF4D6A', 'color':'#FF4D6A' }},
-      { selector:'[state="queued"]', style:{ 'background-color':'#161620', 'border-color':'#363652', 'color':'#6B6B90' }},
+        'background-color':'#EDF6F0', 'border-color':'#2F8F5B', 'border-width':1.5, 'color':'#256F47' }},
+      { selector:'[state="error"]', style:{ 'background-color':'#FCEEF3', 'border-color':'#C0296B', 'color':'#C0296B' }},
+      { selector:'[state="queued"]', style:{ 'background-color':'#FAF6FE', 'border-color':'#EAE3F2', 'color':'#7D7593' }},
     ],
     layout:{ name:'dagre', rankDir:'LR', nodeSep:20, rankSep:40, padding:20 },
   });
@@ -2345,7 +2490,10 @@ function groundingBuildGraph(){
     userZoomingEnabled:true, userPanningEnabled:true,
   });
 
-  _grndCy.on('tap','node',evt=>{ _grndOpenDrawer(evt.target); });
+  _grndCy.on('tap','node',evt=>{ _grndSelectChain(evt.target); _grndOpenDrawer(evt.target); });
+  // Tapping empty canvas clears the chain. evt.target is the core itself on a
+  // background tap, which is how Cytoscape distinguishes it from an element tap.
+  _grndCy.on('tap',evt=>{ if(evt.target===_grndCy) _grndClearSelection(); });
 
   const grounded=allNodes.filter(d=>{ const st=statusMap[d.id]; return st&&st.is_grounded; }).length;
   document.getElementById('grndStatusSummary').textContent=`${grounded} / ${allNodes.length} nodes grounded`;
@@ -2358,17 +2506,56 @@ function _buildGroundingCyStyle(){
       'font-size':'9px', 'font-family':'DM Sans,sans-serif',
       'text-valign':'center', 'text-halign':'center',
       'width':'78px', 'height':'32px', 'shape':'roundrectangle',
-      'background-color':'#1E1E2C', 'border-color':'#28283C', 'border-width':1.5, 'color':'#C8C4DC' }},
-    { selector:'edge', style:{ 'curve-style':'bezier','target-arrow-shape':'triangle','line-color':'#363652','target-arrow-color':'#363652','width':1.2,'opacity':.6 }},
+      'background-color':'#FFFFFF', 'border-color':'#DED0F0', 'border-width':1.5, 'color':'#4A4560' }},
+    { selector:'edge', style:{ 'curve-style':'bezier','target-arrow-shape':'triangle','line-color':'#C9BBDE','target-arrow-color':'#C9BBDE','width':1.2,'opacity':.8 }},
     { selector:'[grounded=true]', style:{ 'border-width':2.5 }},
-    { selector:'.highlighted', style:{ 'border-color':'#FFB800','border-width':3,'background-color':'rgba(255,184,0,.18)' }},
-    { selector:':selected', style:{ 'border-color':'var(--acc)','border-width':3 }},
   ];
+
+  // Phase colours must be pushed BEFORE the selection styles below. Cytoscape resolves
+  // competing rules by stylesheet ORDER — last match wins — so the previous version,
+  // which declared '.highlighted' and ':selected' above this loop, had both silently
+  // overridden by the phase rule on every node that carried a phase (i.e. all of them).
   Object.entries(PHASE_COLORS_GRND).forEach(([ph,c])=>{
     base.push({ selector:`[phase="${ph}"]`, style:{ 'background-color':c.bg+'22','border-color':c.border,'color':c.text }});
     base.push({ selector:`[phase="${ph}"][grounded=true]`, style:{ 'background-color':c.bg+'44','border-color':c.border }});
   });
+
+  // ── Selection: the tapped node in red, everything downstream of it in light red ──
+  // Descendants first so an explicitly selected node still wins if it is also a
+  // descendant of itself via a cycle.
+  base.push(
+    { selector:'.sel-desc', style:{
+        'background-color':'#FCE4E4','border-color':'#E38A8A','color':'#8E1B1B','border-width':2 }},
+    { selector:'.sel-edge', style:{
+        'line-color':'#E38A8A','target-arrow-color':'#E38A8A','width':2,'opacity':1 }},
+    { selector:'.sel-node', style:{
+        'background-color':'#C62828','border-color':'#8E1B1B','color':'#FFFFFF',
+        'border-width':3,'font-weight':'bold' }},
+    { selector:'.highlighted', style:{ 'border-color':'#B9822B','border-width':3,'background-color':'#FFF8EC' }},
+    // Cytoscape resolves no CSS custom properties — 'var(--acc)' was silently ignored
+    // here, so a selected node never got its accent border. Literal value instead.
+    { selector:':selected', style:{ 'border-width':3 }},
+  );
   return base;
+}
+
+/* Clear any red selection chain. Safe to call when nothing is selected. */
+function _grndClearSelection(){
+  if(!_grndCy) return;
+  _grndCy.elements().removeClass('sel-node sel-desc sel-edge');
+}
+
+/* Paint the tapped node red and its DIRECT children light red.
+   outgoers() is one hop only — the immediate outgoing edges and the nodes they point
+   at. Deliberately not successors(), which walks the whole downstream subtree and
+   would also light up grandchildren and below. */
+function _grndSelectChain(node){
+  if(!_grndCy||!node) return;
+  _grndClearSelection();
+  const kids = node.outgoers();          // one hop: edges + their target nodes
+  kids.nodes().addClass('sel-desc');
+  kids.edges().addClass('sel-edge');
+  node.addClass('sel-node');
 }
 
 const WORKBOOK_NODE_ID = 'config-workbook';
@@ -2514,8 +2701,21 @@ function _stopNeonPulse(){
 function groundingToggleFullscreen(){
   const w=document.getElementById('grndGraphWrap');
   w.classList.toggle('fullscreen');
-  if(_grndCy) setTimeout(()=>_grndCy.fit(),100);
+  if(_grndCy) setTimeout(()=>{ _grndCy.resize(); _grndCy.fit(); },100);
 }
+
+/* Escape gets you out. Needed because the ⛶ Fullscreen button is in the card header,
+   which the fullscreen overlay covers — so entering fullscreen used to be a one-way
+   door with no way back short of reloading the page.
+   Layered on purpose: with the node drawer open, Escape closes the drawer first and a
+   second press leaves fullscreen, so one key never discards two things at once. */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  const drawer=document.getElementById('grndDrawer');
+  if(drawer && drawer.classList.contains('open')){ grndCloseDrawer(); return; }
+  const w=document.getElementById('grndGraphWrap');
+  if(w && w.classList.contains('fullscreen')) groundingToggleFullscreen();
+});
 
 async function groundingHandleFile(file){
   if(!file||!_grndActiveNode) return;
@@ -2556,6 +2756,16 @@ let _tmplRefFile=null, _tmplRefStatus=null;
 
 function adminLoadTemplate(){
   const sel=document.getElementById('adminTmplSelect').value;
+  /* Workbook Generator has its own panel — it needs module + workbook + a
+     country flag, which the single prompt/reference editor cannot express. */
+  const wbPanel=document.getElementById('wbAdminPanel');
+  if(sel==='Workbook Generator'){
+    document.getElementById('tmplEditor').style.display='none';
+    wbPanel.style.display='block';
+    wbAdmInit();
+    return;
+  }
+  if(wbPanel) wbPanel.style.display='none';
   if(!sel){ document.getElementById('tmplEditor').style.display='none'; return; }
   document.getElementById('tmplEditorName').textContent=sel;
   document.getElementById('tmplEditor').style.display='block';
@@ -2564,9 +2774,23 @@ function adminLoadTemplate(){
   document.getElementById('tmplRefChosen').textContent='';
   document.getElementById('tmplRefDZ').classList.remove('filled');
 
+  // Read from the server so every admin, on every machine, sees the same config.
+  document.getElementById('tmplSystemPrompt').value='';
+  fetch(`${srv()}/admin/adhoc-config/`+encodeURIComponent(sel))
+    .then(r=>r.json())
+    .then(cfg=>{
+      if(!cfg || !cfg.configured) return;
+      document.getElementById('tmplSystemPrompt').value=cfg.system_prompt||'';
+      if(cfg.file_name){
+        document.getElementById('tmplRefChosen').textContent=
+          '✓ '+cfg.file_name+' ('+cfg.size_kb+' KB, stored)';
+        document.getElementById('tmplRefDZ').classList.add('filled');
+      }
+    })
+    .catch(()=>{});
+
   const configs=getConfigs();
   const c=configs[sel]||{};
-  document.getElementById('tmplSystemPrompt').value=c.systemPrompt||'';
 
   const existingRef=document.getElementById('tmplExistingRef');
   const existingRefTxt=document.getElementById('tmplExistingRefTxt');
@@ -2578,8 +2802,26 @@ function adminLoadTemplate(){
   }
 }
 
+// Reference types allowed for a template. Each must be readable as a structure AND
+// producible as output, because this file decides the template's output format.
+const TMPL_REF_EXTS   = ['xlsx','docx','pptx','pdf','xml'];
+const TMPL_LEGACY_EXTS= { ppt:'pptx', doc:'docx', xls:'xlsx' };
+
 function tmplRefSet(file){
   if(!file) return;
+  // Checked here as well as in `accept`: drag-and-drop bypasses the picker filter.
+  const ext = String(file.name || '').split('.').pop().toLowerCase();
+  if(TMPL_LEGACY_EXTS[ext]){
+    showToast('.'+ext+' is too old to open reliably. Save "'+file.name+'" as .'
+      + TMPL_LEGACY_EXTS[ext] + ' and upload that instead.', 'error');
+    document.getElementById('tmplRefIn').value=''; return;
+  }
+  if(!TMPL_REF_EXTS.includes(ext)){
+    showToast('.'+ext+' cannot be used as a template reference. Documents generated '
+      + 'from this template follow the reference’s format, so it must be one of: '
+      + TMPL_REF_EXTS.map(e=>'.'+e).join(', ') + '.', 'error');
+    document.getElementById('tmplRefIn').value=''; return;
+  }
   _tmplRefFile=file;
   document.getElementById('tmplRefChosen').textContent='✓ '+file.name;
   document.getElementById('tmplRefDZ').classList.add('filled');
@@ -2599,33 +2841,44 @@ async function adminSaveTemplate(){
     catch(e){ showToast('⚠ File encoding failed','error'); btn.disabled=false; btn.textContent='💾 Save Template'; return; }
   }
 
-  // save to server if ref file present
-  if(refEncoded){
-    try {
-      const r=await fetch(`${srv()}/upload-ref`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({templateType:sel,refData:refEncoded,refFileName}),
-      });
-      if(!r.ok) throw new Error('Server '+r.status);
-      _tmplRefStatus='server';
-    } catch(e){
-      // localStorage fallback for small files
-      if(refEncoded.length<200000){
-        _tmplRefStatus='local';
-      } else {
-        _tmplRefStatus='failed';
-        showToast('⚠ Reference file upload failed — file may be too large','error');
-      }
+  // Save to the SERVER, not localStorage.
+  //
+  // This previously POSTed {templateType, refData, refFileName} to /upload-ref, which
+  // requires {content, name, ext} - so every save 422'd and fell back to localStorage,
+  // where nothing ever read it. The prompt was per-browser and the reference file was
+  // never applied to a single generation. /admin/adhoc-config is the real store; it
+  // also PII-scrubs the reference before writing it to disk.
+  try {
+    const r=await fetch(`${srv()}/admin/adhoc-config`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        template: sel,
+        systemPrompt: systemPrompt,
+        refData: refEncoded || null,
+        refFileName: refFileName || null,
+        username: 'admin',
+      }),
+    });
+    if(!r.ok) throw new Error('Server '+r.status);
+    const res=await r.json();
+    _tmplRefStatus='server';
+    // Tell the admin exactly what was removed. A silent scrub leaves them unsure
+    // whether the reference is safe to reuse across clients.
+    let red={};
+    try { red=JSON.parse(res.redactions||'{}'); } catch(_){}
+    const n=Object.values(red).reduce((a,b)=>a+b,0);
+    if(res.refStored && n){
+      showToast('Saved. Removed '+n+' personal-data item(s) from the reference: '+
+        Object.entries(red).map(([k,v])=>k.replace('_',' ')+' x'+v).join(', '),'success');
+    } else if(res.refStored){
+      showToast('Saved. No personal data found in the reference.','success');
+    } else {
+      showToast('Template settings saved.','success');
     }
+  } catch(e){
+    _tmplRefStatus='failed';
+    showToast('Save failed: '+e.message,'error');
   }
-
-  // save to localStorage
-  const configs=getConfigs();
-  configs[sel]=configs[sel]||{};
-  if(systemPrompt) configs[sel].systemPrompt=systemPrompt;
-  if(refFileName)  configs[sel].refFileName=refFileName;
-  if(_tmplRefStatus==='local'&&refEncoded) configs[sel].refData=refEncoded;
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(configs));
 
   btn.disabled=false;
   if(_tmplRefStatus==='failed'){
@@ -2663,9 +2916,17 @@ function switchAdminTab(which){
     document.getElementById('adminTab'+id).classList.toggle('on',id.toLowerCase()===which);
     document.getElementById('adminPanel'+id).classList.toggle('on',id.toLowerCase()===which);
   });
-  if(which==='ground' && !_grndCy){
-    if(window._cyReady) groundingInit();
-    else window._pendingGrndInit=()=>groundingInit();
+  if(which==='ground'){
+    if(!_grndCy){
+      if(window._cyReady) groundingInit();
+      else window._pendingGrndInit=()=>groundingInit();
+    } else {
+      // Admin now opens on Template Config, so the map is usually built while this
+      // panel is still hidden — and Cytoscape measures a hidden container as 0x0,
+      // which renders blank once it is shown. Re-measure after the panel has actually
+      // been laid out. Same reason groundingToggleFullscreen() re-fits on resize.
+      setTimeout(()=>{ _grndCy.resize(); _grndCy.fit(); },60);
+    }
   }
 }
 
@@ -2677,8 +2938,245 @@ window.addEventListener('DOMContentLoaded', ()=>{
   renderCascDocGrid();
   // initialise outer panel id references
   document.getElementById('outerPanelUser').classList.add('on');
-  if(location.hash==='#grounding'){ switchOuter('admin'); switchAdminTab('ground'); }
+  // Entering Admin lands on Template Config [Adhoc], whichever door you came through.
+  // switchOuter('admin') already selects it; this used to override that with 'ground'
+  // because the Admin link carries #grounding, so the requested default never survived
+  // the deep link. #grounding-graph still opens the map directly for anyone who wants it.
+  if(location.hash==='#grounding'){ switchOuter('admin'); }
+  else if(location.hash==='#grounding-graph'){ switchOuter('admin'); switchAdminTab('ground'); }
 });
+</script>
+
+<script>
+/* The backend now serves this page and listens on a FREE port chosen at startup,
+   not a fixed 8001. So whenever we are on http(s) the API is simply where this
+   page came from. The 8001 default only applies when the file is opened directly
+   off disk (file://), which is how a source checkout is used. */
+(function pzServerDefault(){
+  try {
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    var el = document.getElementById('serverUrl');
+    if (el) el.value = location.origin;
+  } catch (e) {}
+})();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WORKBOOK GENERATOR — ADMIN GROUNDING
+   ══════════════════════════════════════════════════════════════════════════
+   Grounds a reference workbook against (module, workbook) rather than a
+   numbered slot, so the user page can offer exactly what exists.
+
+   Stored in grounding_docs under `workbook:<MODULE>:<workbook>`. That prefix is
+   why it is safe to share the table: cascade resolves grounding by exact graph
+   node id, and the Document Grounding panel enumerates knowledge-graph nodes,
+   so neither can ever see one of these rows.
+
+   The country-filter checkbox is pre-ticked from what the file actually
+   contains, then left to the admin. Detection alone is not enough: of the ten
+   reference workbooks measured, RCM reports three "country" sheets that hold a
+   195-row country PICKLIST rather than country-specific configuration, and
+   filtering that would be meaningless. */
+
+let _wbAdmFile = null;      // { name, b64, ext }
+
+async function wbAdmInit(){
+  const sel = document.getElementById('wbAdmModule');
+  document.getElementById('wbAdmMsg').innerHTML = '';
+  try{
+    const r = await fetch(`${srv()}/workbook/modules`);
+    const d = await r.json();
+    sel.innerHTML = '<option value="">— Select module —</option>' +
+      d.modules.map(m =>
+        `<option value="${m.id}">${m.label} — ${m.grounded_count}/${m.workbook_count} grounded</option>`
+      ).join('');
+  }catch(e){
+    sel.innerHTML = '<option value="">Server unreachable</option>';
+    document.getElementById('wbAdmMsg').innerHTML =
+      '<div style="font-size:12px;color:var(--red,#c00)">Could not reach the server. Check the URL above and that the backend is running.</div>';
+  }
+}
+
+async function wbAdmModuleChange(){
+  const mod = document.getElementById('wbAdmModule').value;
+  const sel = document.getElementById('wbAdmWorkbook');
+  document.getElementById('wbAdmExisting').innerHTML = '';
+  wbAdmRefresh();
+  if(!mod){
+    sel.disabled = true;
+    sel.innerHTML = '<option value="">Select a module first</option>';
+    return;
+  }
+  sel.disabled = true;
+  sel.innerHTML = '<option value="">Loading…</option>';
+  try{
+    const r = await fetch(`${srv()}/workbook/modules/${encodeURIComponent(mod)}/workbooks`);
+    const d = await r.json();
+    /* Every workbook is selectable here — unlike the user page, an admin must be
+       able to pick one precisely because it is NOT grounded yet. */
+    sel.innerHTML = '<option value="">— Select workbook —</option>' +
+      d.workbooks.map(w =>
+        `<option value="${w.id}">${w.label}${w.grounded ? ' ✓ ' + w.file_count + ' file(s)' : ''}</option>`
+      ).join('');
+    sel.disabled = false;
+  }catch(e){
+    sel.innerHTML = '<option value="">Failed to load</option>';
+  }
+}
+
+async function wbAdmWorkbookChange(){
+  const mod = document.getElementById('wbAdmModule').value;
+  const wb  = document.getElementById('wbAdmWorkbook').value;
+  const box = document.getElementById('wbAdmExisting');
+  wbAdmRefresh();
+  if(!mod || !wb){ box.innerHTML = ''; return; }
+  box.innerHTML = '<div style="font-size:12px;color:var(--muted)">Checking…</div>';
+  try{
+    const r = await fetch(`${srv()}/workbook/countries/${encodeURIComponent(mod)}/${encodeURIComponent(wb)}`);
+    if(r.status === 404){
+      box.innerHTML = '<div style="font-size:12px;color:var(--muted)">Nothing grounded yet for this workbook.</div>';
+      document.getElementById('wbAdmCF').checked = false;
+      return;
+    }
+    const d = await r.json();
+    const files = (d.files||[]).map(f =>
+      `<div style="font-size:12px;margin-top:3px">• ${f.name} <span style="color:var(--muted)">(${f.size_kb} KB)</span></div>`).join('');
+    box.innerHTML =
+      `<div style="border:1px solid var(--border2);border-radius:9px;padding:10px 12px;background:var(--surface)">
+         <div style="font-size:12px;font-weight:700">Already grounded — ${(d.files||[]).length} file(s)</div>
+         ${files}
+         <div style="font-size:11.5px;color:var(--muted);margin-top:7px">
+           ${d.csf_sheets} country-specific sheet(s) detected of ${d.sheets};
+           country filtering is <strong>${d.filterable ? 'on' : 'off'}</strong>.
+         </div>
+         <button class="save-prompt-btn" style="margin-top:9px;background:#8a1c1c"
+                 onclick="wbAdmRemove()">Remove all files</button>
+       </div>
+       <div style="font-size:11.5px;color:var(--muted);margin-top:7px">
+         Uploading another file ADDS to this workbook — users receive them as a zip.
+       </div>`;
+    document.getElementById('wbAdmCF').checked = !!d.filterable;
+  }catch(e){
+    box.innerHTML = '<div style="font-size:12px;color:var(--muted)">Could not read current state.</div>';
+  }
+}
+
+/* Drag-and-drop routes into the same reader as the file input, so a dropped
+   file and a browsed file behave identically. */
+function wbAdmDrop(ev){
+  const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+  if(f) wbAdmReadFile(f);
+}
+
+function wbAdmFileChosen(ev){
+  const f = ev.target.files && ev.target.files[0];
+  if(f) wbAdmReadFile(f);
+}
+
+function wbAdmReadFile(f){
+  if(!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    _wbAdmFile = {
+      name: f.name,
+      b64: String(rd.result).split(',')[1] || '',
+      ext: (f.name.split('.').pop() || 'xlsx').toLowerCase()
+    };
+    document.getElementById('wbAdmChosen').textContent = '✓ ' + f.name +
+      ' (' + (f.size/1024).toFixed(1) + ' KB)';
+    document.getElementById('wbAdmDZ').classList.add('filled');
+    /* Offer the module/workbook the file name implies, so the admin confirms
+       rather than hunts through 54 entries. */
+    wbAdmSuggest(f.name);
+    wbAdmRefresh();
+  };
+  rd.readAsDataURL(f);
+}
+
+async function wbAdmSuggest(name){
+  try{
+    const r = await fetch(`${srv()}/admin/workbook/suggest?name=${encodeURIComponent(name)}`);
+    const d = await r.json();
+    if(!d.suggestion) return;
+    const s = d.suggestion;
+    const modSel = document.getElementById('wbAdmModule');
+    if(!modSel.value){
+      modSel.value = s.module;
+      await wbAdmModuleChange();
+      document.getElementById('wbAdmWorkbook').value = s.workbook;
+      await wbAdmWorkbookChange();
+      document.getElementById('wbAdmMsg').innerHTML =
+        `<div style="font-size:12px;color:var(--muted)">Suggested from the file name: <strong>${s.module_label} / ${s.workbook_label}</strong>. Change it if that is wrong.</div>`;
+    }
+  }catch(e){}
+}
+
+function wbAdmRefresh(){
+  const ok = document.getElementById('wbAdmModule').value &&
+             document.getElementById('wbAdmWorkbook').value && _wbAdmFile;
+  document.getElementById('wbAdmSave').disabled = !ok;
+}
+
+async function wbAdmGround(){
+  const mod = document.getElementById('wbAdmModule').value;
+  const wb  = document.getElementById('wbAdmWorkbook').value;
+  if(!mod || !wb || !_wbAdmFile) return;
+  const btn = document.getElementById('wbAdmSave');
+  btn.disabled = true; btn.textContent = 'Grounding…';
+  document.getElementById('wbAdmMsg').innerHTML = '';
+  try{
+    const r = await fetch(`${srv()}/admin/workbook/ground`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        module: mod, workbook: wb,
+        name: _wbAdmFile.name, ext: _wbAdmFile.ext, content: _wbAdmFile.b64,
+        countryFiltered: document.getElementById('wbAdmCF').checked,
+        username: 'admin'
+      })
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('Server error ' + r.status));
+    document.getElementById('wbAdmSaved').classList.add('show');
+    setTimeout(()=>document.getElementById('wbAdmSaved').classList.remove('show'), 2600);
+    document.getElementById('wbAdmMsg').innerHTML =
+      `<div style="font-size:12px;color:var(--green)">Grounded as file ${d.index}.
+         Detection found ${d.csf_sheets} country-specific sheet(s)${d.countries ? ' and ' + d.countries + ' countries' : ''}.</div>`;
+    _wbAdmFile = null;
+    document.getElementById('wbAdmFile').value = '';
+    document.getElementById('wbAdmChosen').textContent = '';
+    document.getElementById('wbAdmDZ').classList.remove('filled');
+    await wbAdmModuleChange();
+    document.getElementById('wbAdmWorkbook').value = wb;
+    await wbAdmWorkbookChange();
+  }catch(e){
+    document.getElementById('wbAdmMsg').innerHTML =
+      `<div style="font-size:12px;color:var(--red)">${e.message}</div>`;
+  }finally{
+    btn.textContent = '💾 Ground Workbook';
+    wbAdmRefresh();
+  }
+}
+
+async function wbAdmRemove(){
+  const mod = document.getElementById('wbAdmModule').value;
+  const wb  = document.getElementById('wbAdmWorkbook').value;
+  if(!mod || !wb) return;
+  if(!confirm('Remove every grounded file for this workbook?')) return;
+  try{
+    const r = await fetch(`${srv()}/admin/workbook/ground/${encodeURIComponent(mod)}/${encodeURIComponent(wb)}`,
+                          {method:'DELETE'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || 'Server error');
+    document.getElementById('wbAdmMsg').innerHTML =
+      `<div style="font-size:12px;color:var(--green)">Removed ${d.removed} file(s).</div>`;
+    await wbAdmModuleChange();
+    document.getElementById('wbAdmWorkbook').value = wb;
+    await wbAdmWorkbookChange();
+  }catch(e){
+    document.getElementById('wbAdmMsg').innerHTML =
+      `<div style="font-size:12px;color:var(--red)">${e.message}</div>`;
+  }
+}
+
 </script>
 </body>
 </html>

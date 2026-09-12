@@ -316,13 +316,13 @@ h1.vt{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink);marg
 
       <div class="sect">Workflow Steps</div>
       <div class="step-nav" id="snav1" onclick="goToStep(1)">
-        <span class="sn">1</span>Country Source
+        <span class="sn">1</span>Module &amp; Workbook
       </div>
       <div class="step-nav" id="snav2" onclick="goToStep(2)">
-        <span class="sn">2</span>Confirm Countries
+        <span class="sn">2</span>In-Scope Countries
       </div>
       <div class="step-nav" id="snav3" onclick="goToStep(3)">
-        <span class="sn">3</span>Review Workbooks
+        <span class="sn">3</span>Review Selection
       </div>
       <div class="step-nav" id="snav4" onclick="goToStep(4)">
         <span class="sn">4</span>Generate &amp; Download
@@ -340,124 +340,88 @@ h1.vt{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink);marg
     <main id="main">
       <div class="view">
         <h1 class="vt">Config Workbook Generator</h1>
-        <p class="vsub">Upload a SOW or SP51, confirm in-scope countries, then generate a filtered EC Configuration Workbook — CSF sheets trimmed to your countries, global sheets kept intact.</p>
+        <p class="vsub">Pick a SuccessFactors module and its configuration workbook. Country-specific workbooks are filtered to the countries you enter; everything else is provided exactly as grounded.</p>
 
         <!-- ═══════════════════════════════════════
-             STEP 1 — Country Source
+             STEP 1 — Select Module & Workbook
              ═══════════════════════════════════════ -->
         <div id="panel1">
           <div class="panel">
             <div class="ph">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h5"/></svg>
-              Step 1 &mdash; Country Source
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+              Step 1 &mdash; Select Module &amp; Workbook
             </div>
             <div class="pb">
               <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
-                Choose how in-scope countries should be determined.
+                Choose the SuccessFactors module, then the configuration workbook you need.
+                Only workbooks an administrator has grounded can be generated.
               </p>
 
-              <div class="mode-toggle">
-                <div class="mode-card on" id="modeManual" onclick="selectMode('manual')">
-                  <div class="mc-top"><span class="mc-icon">&#127760;</span><span class="mc-title">Select Countries Manually</span><span class="mc-radio"></span></div>
-                  <div class="mc-sub">Scan the grounded configuration workbook and pick from the countries already present in it.</div>
-                </div>
-                <div class="mode-card" id="modeSow" onclick="selectMode('sow')">
-                  <div class="mc-top"><span class="mc-icon">&#128196;</span><span class="mc-title">Import SOW / SP51</span><span class="mc-radio"></span></div>
-                  <div class="mc-sub">Upload a scope document — Claude reads it and identifies in-scope countries.</div>
-                </div>
-              </div>
+              <label class="fl">SuccessFactors Module</label>
+              <select class="fi" id="selModule" onchange="onModuleChange()" style="width:100%;margin-bottom:16px">
+                <option value="">Loading modules&hellip;</option>
+              </select>
 
-              <!-- ── Manual mode ── -->
-              <div id="manualModeBody">
-                <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
-                  Reads the grounded reference workbook's CSF (country-specific) sheets and lists every country actually found in them.
-                </p>
-                <div class="btn-row" style="margin-top:0">
-                  <button class="btn" id="btnScan" onclick="scanWorkbook()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-                    <span id="btnScanLabel">Scan Grounded Workbook</span>
-                  </button>
-                </div>
-                <div id="scanMsg"></div>
-              </div>
+              <label class="fl">Configuration Workbook</label>
+              <select class="fi" id="selWorkbook" onchange="onWorkbookChange()" disabled style="width:100%">
+                <option value="">Select a module first</option>
+              </select>
 
-              <!-- ── SOW mode ── -->
-              <div id="sowModeBody" style="display:none">
-                <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
-                  Upload your Statement of Work (SOW) or SP51 scoping document. Claude will read it and identify all in-scope countries for the implementation.
-                </p>
+              <div id="wbSummary" style="display:none;margin-top:16px"></div>
+              <div id="moduleMsg"></div>
 
-                <div class="upload-zone" id="sowZone"
-                     ondragover="zwOver(event,'sowZone')" ondragleave="zwLeave('sowZone')" ondrop="zwDrop(event)">
-                  <input type="file" id="sowFile" accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.pptx,.ppt,.mpp" onchange="sowChosen(event)"/>
-                  <div class="upload-icon">&#128196;</div>
-                  <div class="upload-title">Drop file here or click to browse</div>
-                  <div class="upload-hint">PDF · DOCX · XLSX · PPTX · PPT · MPP · TXT &nbsp;·&nbsp; max 20 MB</div>
-                </div>
-
-                <div id="sowFileCard" style="display:none" class="file-card">
-                  <span class="fc-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>
-                  </span>
-                  <div style="flex:1">
-                    <div class="fc-name" id="sowFileName"></div>
-                    <div class="fc-size" id="sowFileSize"></div>
-                  </div>
-                  <button class="fc-rm" onclick="sowRemove()" title="Remove">&#215;</button>
-                </div>
-
-                <div id="sowMsg"></div>
-
-                <div class="btn-row">
-                  <button class="btn" id="btnExtract" disabled onclick="extractCountries()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-                    <span id="btnExtractLabel">Extract Countries</span>
-                  </button>
-                  <span id="extractHint" style="font-size:12px;color:var(--muted)">Select a document first</span>
-                </div>
+              <div class="btn-row">
+                <div style="flex:1"></div>
+                <button class="btn" id="btnToCountries" onclick="afterWorkbookChosen()" disabled>
+                  Continue &#8594;
+                </button>
               </div>
             </div>
           </div>
         </div>
 
         <!-- ═══════════════════════════════════════
-             STEP 2 — Confirm Countries
+             STEP 2 — In-Scope Countries
              ═══════════════════════════════════════ -->
         <div id="panel2" style="display:none">
           <div class="panel">
             <div class="ph">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
-              Step 2 &mdash; Confirm In-Scope Countries
-              <span class="ph-badge" id="foundBadge">0 found</span>
+              Step 2 &mdash; In-Scope Countries
+              <span class="ph-badge" id="foundBadge">0 added</span>
             </div>
             <div class="pb">
-              <p style="font-size:13px;color:var(--muted);margin:0 0 14px">
-                De-select any countries to exclude, or add ones that were missed. CSF sheets will be filtered to only the selected countries. Global sheets are always kept.
+              <p style="font-size:13px;color:var(--muted);margin:0 0 4px">
+                Type a country name or code and press <strong>Enter</strong>.
+                Its ISO-3 code is added automatically.
               </p>
+              <p style="font-size:11.5px;color:var(--muted);margin:0 0 14px" id="cAvailHint"></p>
 
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                <span style="font-size:12px;font-weight:800;color:var(--ink)">Detected Countries</span>
-                <div style="display:flex;align-items:center;gap:10px">
-                  <button type="button" class="btn ghost sm" id="btnSelectAll" onclick="toggleSelectAll()">Select All</button>
-                  <span class="country-stats" id="cStats">0 selected</span>
+              <label class="fl">Add Country</label>
+              <div class="add-row">
+                <input class="fi" id="cInput" autocomplete="off" style="flex:1"
+                       placeholder="e.g. India, IND, or IN &mdash; paste a comma-separated list too"
+                       oninput="onCountryType()"
+                       onkeydown="onCountryKey(event)"/>
+                <button class="btn ghost sm" onclick="submitCountry()">+ Add</button>
+              </div>
+
+              <!-- live suggestion / disambiguation -->
+              <div id="cResolve" style="display:none;margin-top:10px"></div>
+
+              <div id="cChipWrap" style="margin-top:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+                  <span style="font-size:12px;font-weight:800;color:var(--ink)">Selected Countries</span>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <button type="button" class="btn ghost sm" onclick="clearCountries()">Clear all</button>
+                    <span class="country-stats" id="cStats">0 selected</span>
+                  </div>
+                </div>
+                <div id="cChips" style="display:flex;flex-wrap:wrap;gap:8px;min-height:38px;
+                     padding:10px;border:1px dashed var(--line);border-radius:11px;background:var(--lilac-2)">
+                  <span id="cEmpty" style="font-size:12px;color:var(--muted)">No countries added yet.</span>
                 </div>
               </div>
-
-              <div class="country-grid" id="countryGrid"></div>
-
-              <div class="divider"></div>
-              <label class="fl">Add Country Manually</label>
-              <p style="font-size:11.5px;color:var(--muted);margin:0 0 9px">
-                Type one or more country names, separated by commas (e.g. <em>USA, Taiwan, United Kingdom</em>).
-                Names already in the list above are selected automatically &mdash; anything new is added and selected.
-              </p>
-              <div class="add-row">
-                <input class="fi" id="addName" placeholder="Country names, comma separated" style="flex:1"
-                       onkeydown="if(event.key==='Enter'){event.preventDefault();addManual();}"/>
-                <input class="fi sm" id="addISO" placeholder="ISO-3 (optional)" maxlength="3" oninput="this.value=this.value.toUpperCase()"/>
-                <button class="btn ghost sm" onclick="addManual()">+ Add</button>
-              </div>
-              <div id="addMsg"></div>
 
               <div class="btn-row">
                 <button class="btn ghost" onclick="setStep(1)">&#8592; Back</button>
@@ -588,7 +552,14 @@ h1.vt{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink);marg
 </svg>
 
 <script>
-const API = (['localhost','127.0.0.1'].includes(location.hostname)) ? 'http://localhost:8000' : 'https://projectzen-cloudui.fly.dev';
+// file:// has an empty location.hostname — treat that as local too, same as
+// documentation_governance.html / Documentation_UserPage.html, otherwise
+// opening this file directly always falls through to the cloud URL.
+const API = (location.protocol === 'file:')
+      ? 'http://localhost:8001'                      /* opened off disk */
+      : (['localhost','127.0.0.1'].includes(location.hostname)
+          ? location.origin                          /* served by the backend on its own port */
+          : 'https://projectzen-cloudui.fly.dev');   /* hosted build */
 
 /* ── Country lookup (mirrors workbook_processor.py's ISO table) ──
    Lets "Add Country Manually" resolve typed names/codes to an ISO-3
@@ -694,16 +665,6 @@ Object.assign(COUNTRY_ALIASES, EXTRA_COUNTRY_ALIASES);
 
 const NAME_CODE_RE = /^(.*?)\s*\(([A-Za-z]{2,3})\)?\s*$/;
 
-function resolveCountryIso3(raw){
-  const key = raw.trim().toLowerCase();
-  if(COUNTRY_ALIASES[key]) return COUNTRY_ALIASES[key];
-  const m = NAME_CODE_RE.exec(raw.trim());
-  if(m){
-    const code = m[2].trim().toLowerCase(), name = m[1].trim().toLowerCase();
-    return COUNTRY_ALIASES[code] || COUNTRY_ALIASES[name] || null;
-  }
-  return null;
-}
 
 /* ── State ─────────────────────────────────────── */
 let mode       = 'manual'; // 'manual' | 'sow'
@@ -722,35 +683,8 @@ let wbCurrentSlotSheetsTotal = 0;
 let wbIndeterminate       = false;
 
 /* ── Mode toggle ─────────────────────────────────── */
-function selectMode(m){
-  mode = m;
-  document.getElementById('modeManual').classList.toggle('on', m==='manual');
-  document.getElementById('modeSow').classList.toggle('on', m==='sow');
-  document.getElementById('manualModeBody').style.display = m==='manual' ? '' : 'none';
-  document.getElementById('sowModeBody').style.display = m==='sow' ? '' : 'none';
-}
 
 /* ── Scan grounded workbook for countries (manual mode) ── */
-async function scanWorkbook(){
-  setBtnLoading('btnScan','btnScanLabel',true,'Scanning…');
-  clearMsg('scanMsg');
-  try {
-    const res = await fetch(API+'/workbook/detect-countries');
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Server error '+res.status);
-    countries = (data.countries||[]).map(c=>({name:c.name, iso3:c.iso3, selected:false}));
-    if(countries.length === 0)
-      showMsg('scanMsg','warn','No countries detected in the grounded workbook — you can add them manually in Step 2.');
-    else
-      toast(countries.length+' countries detected in the grounded workbook');
-    buildGrid();
-    setStep(2);
-  } catch(err){
-    showMsg('scanMsg','err','Scan failed: '+err.message);
-  } finally {
-    setBtnLoading('btnScan','btnScanLabel',false,'Scan Grounded Workbook');
-  }
-}
 
 /* ── Step navigation ────────────────────────────── */
 function setStep(n){
@@ -772,189 +706,30 @@ function goToStep(n){
 }
 
 /* ── Drag & drop ────────────────────────────────── */
-function zwOver(e, id){ e.preventDefault(); document.getElementById(id).classList.add('drag-over'); }
-function zwLeave(id){ document.getElementById(id).classList.remove('drag-over'); }
-function zwDrop(e){
-  e.preventDefault();
-  document.getElementById('sowZone').classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if(f) handleFile(f);
-}
-function sowChosen(e){ if(e.target.files[0]) handleFile(e.target.files[0]); }
 
-function handleFile(file){
-  clearMsg('sowMsg');
-  const MAX = 20*1024*1024;
-  if(file.size > MAX){ showMsg('sowMsg','err','File too large (max 20 MB).'); return; }
-  const ok = ['pdf','docx','doc','xlsx','xls','txt','pptx','ppt','mpp'];
-  const ext = file.name.split('.').pop().toLowerCase();
-  if(!ok.includes(ext)){ showMsg('sowMsg','err','Unsupported file type.'); return; }
 
-  readB64(file).then(b64 => {
-    sowFile = { name: file.name, b64, size: file.size };
-    document.getElementById('sowFileName').textContent = file.name;
-    document.getElementById('sowFileSize').textContent = fmtBytes(file.size);
-    document.getElementById('sowFileCard').style.display = 'flex';
-    document.getElementById('btnExtract').disabled = false;
-    document.getElementById('extractHint').textContent = 'Ready to extract countries';
-  });
-}
 
-function readB64(file){
-  return new Promise((res,rej) => {
-    const r = new FileReader();
-    r.onload = e => { const d = e.target.result; res(d.slice(d.indexOf(',')+1)); };
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
-
-function sowRemove(){
-  sowFile = null;
-  document.getElementById('sowFileCard').style.display = 'none';
-  document.getElementById('sowFile').value = '';
-  document.getElementById('btnExtract').disabled = true;
-  document.getElementById('extractHint').textContent = 'Select a document first';
-  clearMsg('sowMsg');
-}
 
 /* ── Extract countries ──────────────────────────── */
-async function extractCountries(){
-  if(!sowFile) return;
-  setBtnLoading('btnExtract','btnExtractLabel',true,'Extracting…');
-  clearMsg('sowMsg');
-  try {
-    const res = await fetch(API+'/workbook/extract-countries',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ fileData: sowFile.b64, fileName: sowFile.name })
-    });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Server error '+res.status);
-    countries = (data.countries||[]).map(c=>({name:c.name, iso3:c.iso3, selected:true}));
-    if(countries.length === 0)
-      showMsg('sowMsg','warn','No countries found — you can add them manually in Step 2.');
-    else
-      toast(countries.length+' countries extracted');
-    buildGrid();
-    setStep(2);
-  } catch(err){
-    showMsg('sowMsg','err','Extraction failed: '+err.message);
-  } finally {
-    setBtnLoading('btnExtract','btnExtractLabel',false,'Extract Countries');
-    document.getElementById('btnExtract').disabled = !sowFile;
-  }
-}
 
 /* ── Country grid ───────────────────────────────── */
-function buildGrid(){
-  const grid = document.getElementById('countryGrid');
-  grid.innerHTML = '';
-  countries.forEach((c,i)=>{
-    const d = document.createElement('div');
-    d.className = 'chip'+(c.selected?' on':'');
-    d.dataset.idx = i;
-    d.onclick = ()=>toggleChip(i,d);
-    d.innerHTML = `
-      <div class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-      <span class="cn">${esc(c.name)}</span>
-      <span class="ci">${esc(c.iso3)}</span>`;
-    grid.appendChild(d);
-  });
-  document.getElementById('foundBadge').textContent = countries.length+' found';
-  updStats();
-}
 
-function toggleChip(i,el){
-  countries[i].selected = !countries[i].selected;
-  el.classList.toggle('on', countries[i].selected);
-  updStats();
-}
 
-function updStats(){
-  const n = countries.filter(c=>c.selected).length;
-  document.getElementById('cStats').textContent = n+' selected';
-  document.getElementById('btnToSlots').disabled = n === 0;
-  const allSelected = countries.length > 0 && n === countries.length;
-  document.getElementById('btnSelectAll').textContent = allSelected ? 'Clear All' : 'Select All';
-}
 
-function toggleSelectAll(){
-  const allSelected = countries.length > 0 && countries.every(c=>c.selected);
-  countries.forEach(c=>c.selected = !allSelected);
-  buildGrid();
-}
 
-function addManual(){
-  const raw = document.getElementById('addName').value.trim();
-  clearMsg('addMsg');
-  if(!raw){ showMsg('addMsg','err','Enter one or more country names, separated by commas.'); return; }
-
-  const names = raw.split(',').map(s=>s.trim()).filter(Boolean);
-  const overrideIso = document.getElementById('addISO').value.trim().toUpperCase();
-
-  let selectedCount=0, addedCount=0, alreadyCount=0;
-  const unresolved=[];
-
-  names.forEach(nm=>{
-    const nmLower = nm.toLowerCase();
-    let existing = countries.find(c=>c.name.toLowerCase()===nmLower || c.iso3.toLowerCase()===nmLower);
-
-    if(!existing){
-      // Also match by resolving the typed name to an ISO-3 and checking
-      // whether that code is already in the list (e.g. typed "USA" but
-      // the grid already has it as "United States").
-      const iso3Guess = (names.length===1 && overrideIso.length===3) ? overrideIso : resolveCountryIso3(nm);
-      if(iso3Guess) existing = countries.find(c=>c.iso3===iso3Guess);
-    }
-
-    if(existing){
-      if(existing.selected){ alreadyCount++; }
-      else { existing.selected=true; selectedCount++; }
-      return;
-    }
-
-    const iso3 = (names.length===1 && overrideIso.length===3) ? overrideIso : resolveCountryIso3(nm);
-    if(iso3){
-      countries.push({name: ISO3_TO_NAME[iso3] || nm, iso3, selected:true});
-      addedCount++;
-    } else {
-      unresolved.push(nm);
-    }
-  });
-
-  buildGrid();
-  document.getElementById('addName').value='';
-  document.getElementById('addISO').value='';
-  document.getElementById('countryGrid').scrollTop=9999;
-
-  if(unresolved.length){
-    showMsg('addMsg','warn',
-      `Could not recognize: ${unresolved.join(', ')}. Try the full country name, or enter its ISO-3 code in the box next to it (one at a time).`);
-  } else {
-    const parts=[];
-    if(selectedCount) parts.push(`${selectedCount} selected`);
-    if(addedCount) parts.push(`${addedCount} added`);
-    if(alreadyCount) parts.push(`${alreadyCount} already selected`);
-    showMsg('addMsg','ok', parts.join(', ')+'.');
-  }
-}
 
 /* ── Slots ──────────────────────────────────────── */
 async function toSlots(){
   setStep(3);
+  /* Step 3 now reviews the ONE workbook the user chose, not the legacy
+     four-slot shelf — the selection made in step 1 already identifies which
+     grounded file(s) will be used. */
   const grid = document.getElementById('slotsGrid');
-  grid.innerHTML = '<div style="color:var(--muted);font-size:12.5px">Loading reference workbooks…</div>';
   document.getElementById('slotsNotice').innerHTML = '';
-  try {
-    const res = await fetch(API+'/admin/workbook-slots');
-    const data = await res.json();
-    slots = data.slots || [];
-    renderSlots();
-  } catch(err){
-    grid.innerHTML = '';
-    document.getElementById('slotsNotice').innerHTML = mkNotice('err','Could not reach server: '+esc(err.message),'');
-    document.getElementById('btnToGen').disabled = true;
-  }
+  slots = (WB.files || []).map((f,i) => ({
+    slot: i+1, occupied: true, file_name: f.name, size_kb: f.size_kb
+  }));
+  renderSlots();
 }
 
 function renderSlots(){
@@ -965,7 +740,7 @@ function renderSlots(){
     const d = document.createElement('div');
     d.className = 'slot-card'+(s.occupied?' loaded':'');
     d.innerHTML = s.occupied
-      ? `<div class="slot-num">Slot ${s.slot}</div>
+      ? `<div class="slot-num">${esc(WB.label||('Slot '+s.slot))}</div>
          <div class="slot-name">${esc(s.file_name)}</div>
          <div class="slot-meta">${(s.size_kb||0).toFixed(1)} KB</div>
          <div class="slot-badge loaded">&#10003; Loaded</div>`
@@ -979,7 +754,7 @@ function renderSlots(){
   if(loaded.length === 0){
     notice.innerHTML = mkNotice('warn',
       'No reference workbooks loaded',
-      'Ask your Admin to upload EC Configuration Workbooks via Document Grounding before generating.');
+      'Ask your Admin to ground a workbook for this module via Document Grounding before generating.');
     document.getElementById('btnToGen').disabled = true;
   } else {
     notice.innerHTML = mkNotice('ok',
@@ -990,16 +765,16 @@ function renderSlots(){
 }
 
 function toGenerate(){
-  const sel = countries.filter(c=>c.selected);
-  const loaded = slots.filter(s=>s.occupied);
+  const sel = selectedCountries();
   document.getElementById('sumCountries').textContent = sel.map(c=>c.name).join(', ') || '—';
-  document.getElementById('sumSlots').textContent = loaded.length+' / 4 loaded';
+  document.getElementById('sumSlots').textContent =
+    (WB.label || '—') + ' · ' + (WB.files||[]).length + ' file(s)';
   setStep(4);
 }
 
 /* ── Generate (background job + live SSE progress) ─ */
 async function startGenerate(){
-  const sel = countries.filter(c=>c.selected);
+  const sel = selectedCountries();
   if(!sel.length) return;
 
   document.getElementById('genActions').style.display='none';
@@ -1015,7 +790,11 @@ async function startGenerate(){
   try {
     const res = await fetch(API+'/workbook/generate/start',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ countries: sel.map(c=>({name:c.name,iso3:c.iso3})) })
+      /* module + workbook narrow generation to the one grounded workbook the
+         user selected; without them the server keeps its legacy behaviour of
+         merging every numbered slot. */
+      body: JSON.stringify({ countries: sel.map(c=>({name:c.name,iso3:c.iso3})),
+                             module: WB.module, workbook: WB.workbook })
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Server error '+res.status);
@@ -1209,19 +988,26 @@ function wbFail(message){
 }
 
 function startOver(){
+  /* Rewritten for the module -> workbook flow. The previous version cleared the
+     SOW upload elements, which no longer exist, so it threw on the first click. */
+  WB = {module:'', workbook:'', label:'', filterable:false,
+        countries:[], files:[], picked:[]};
+  countries=[]; slots=[];
   wbCloseSSE();
-  sowFile=null; countries=[]; slots=[];
-  wbJobId=null; wbTotalSlots=0; wbCompletedSlots=0;
-  document.getElementById('sowFile').value='';
-  document.getElementById('sowFileCard').style.display='none';
-  document.getElementById('btnExtract').disabled=true;
-  document.getElementById('extractHint').textContent='Select a document first';
-  clearMsg('sowMsg');
-  document.getElementById('genActions').style.display='';
+  document.getElementById('selWorkbook').innerHTML='<option value="">Select a module first</option>';
+  document.getElementById('selWorkbook').disabled=true;
+  document.getElementById('selModule').value='';
+  document.getElementById('wbSummary').style.display='none';
+  document.getElementById('btnToCountries').disabled=true;
+  document.getElementById('btnToSlots').disabled=true;
+  hideResolve();
+  document.getElementById('cInput').value='';
+  renderChips();
+  ['moduleMsg','genErr'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=''; });
   document.getElementById('runPanel').style.display='none';
-  document.getElementById('runLog').innerHTML='';
   document.getElementById('resultsPanel').style.display='none';
-  document.getElementById('genErr').innerHTML='';
+  document.getElementById('genActions').style.display='';
+  loadModules();
   setStep(1);
 }
 
@@ -1270,6 +1056,362 @@ function toast(msg){
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmtBytes(b){ return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB'; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MODULE -> WORKBOOK -> COUNTRIES
+   ══════════════════════════════════════════════════════════════════════════
+   Replaces the old "scan the workbook, tick from a grid" flow.
+
+   The country box appears ONLY when the grounded file actually has
+   country-scoped sheets. Measured across the ten supplied reference
+   workbooks, only three do — Employee Data (7 CSF sheets), Foundation Data
+   (10) and RCM (3, and RCM's are a picklist, which is why an admin can
+   switch it off). The other seven are a plain download.
+
+   Typed countries are matched against THIS workbook's own country list, not
+   against all 195. A typo is never applied silently: Iran/Iraq and
+   Austria/Australia are one edit apart and both appear in the real data, so
+   an inexact match always asks. */
+
+let WB = {
+  module: '', workbook: '', label: '',
+  filterable: false, countries: [], files: [], picked: []
+};
+
+async function loadModules(){
+  const sel = document.getElementById('selModule');
+  try{
+    const r = await fetch(API + '/workbook/modules');
+    const d = await r.json();
+    sel.innerHTML = '<option value="">Select a module&hellip;</option>' +
+      d.modules.map(m =>
+        `<option value="${esc(m.id)}">${esc(m.label)} — ${m.grounded_count}/${m.workbook_count} grounded</option>`
+      ).join('');
+  }catch(e){
+    sel.innerHTML = '<option value="">Could not reach the server</option>';
+    showMsg('moduleMsg','err','Could not load modules. Is the backend running?');
+  }
+}
+
+async function onModuleChange(){
+  const mod = document.getElementById('selModule').value;
+  const sel = document.getElementById('selWorkbook');
+  document.getElementById('wbSummary').style.display='none';
+  document.getElementById('btnToCountries').disabled = true;
+  clearMsg('moduleMsg');
+  WB.module = mod; WB.workbook = '';
+  if(!mod){
+    sel.disabled = true;
+    sel.innerHTML = '<option value="">Select a module first</option>';
+    return;
+  }
+  sel.disabled = true;
+  sel.innerHTML = '<option value="">Loading&hellip;</option>';
+  try{
+    const r = await fetch(API + '/workbook/modules/' + encodeURIComponent(mod) + '/workbooks');
+    const d = await r.json();
+    sel.innerHTML = '<option value="">Select a workbook&hellip;</option>' +
+      d.workbooks.map(w => {
+        const tag = w.grounded
+          ? (w.file_count > 1 ? ` — ${w.file_count} files` : ' — grounded')
+          : ' — not grounded';
+        return `<option value="${esc(w.id)}" ${w.grounded?'':'disabled'}>${esc(w.label)}${tag}</option>`;
+      }).join('');
+    sel.disabled = false;
+    if(!d.workbooks.some(w => w.grounded)){
+      showMsg('moduleMsg','warn','No workbook in this module has been grounded yet. Ask an administrator to ground one.');
+    }
+  }catch(e){
+    sel.innerHTML = '<option value="">Failed to load</option>';
+    showMsg('moduleMsg','err','Could not load workbooks for this module.');
+  }
+}
+
+async function onWorkbookChange(){
+  const wb = document.getElementById('selWorkbook').value;
+  const box = document.getElementById('wbSummary');
+  document.getElementById('btnToCountries').disabled = true;
+  clearMsg('moduleMsg');
+  WB.workbook = wb;
+  if(!wb){ box.style.display='none'; return; }
+
+  box.style.display='block';
+  box.innerHTML = '<div style="font-size:12.5px;color:var(--muted)">Reading the grounded workbook&hellip;</div>';
+  try{
+    const r = await fetch(API + '/workbook/countries/' + encodeURIComponent(WB.module) +
+                          '/' + encodeURIComponent(wb));
+    if(!r.ok){
+      const j = await r.json().catch(()=>({}));
+      box.innerHTML='';
+      showMsg('moduleMsg','err', j.detail || 'That workbook is not grounded.');
+      return;
+    }
+    const d = await r.json();
+    WB.label      = d.label;
+    WB.filterable = !!d.filterable;
+    WB.countries  = d.countries || [];
+    WB.files      = d.files || [];
+    WB.picked     = [];
+
+    const fileList = WB.files.map(f => `${esc(f.name)} <span style="color:var(--muted)">(${f.size_kb} KB)</span>`).join('<br>');
+    const modeLine = WB.filterable
+      ? `<span style="color:var(--violet);font-weight:800">Country-filtered</span> — ${d.csf_sheets} country-specific sheet(s), ${d.count} countries available.`
+      : `<span style="font-weight:800">Direct download</span> — no country-specific sheets, so the workbook is provided as grounded.`;
+    const overrideNote = (d.override === false && d.detected)
+      ? `<div style="font-size:11.5px;color:var(--muted);margin-top:6px">An administrator has turned country filtering off for this workbook.</div>` : '';
+
+    box.innerHTML =
+      `<div class="slot-card loaded" style="padding:14px 15px">
+         <div class="slot-name" style="font-size:13px">${esc(WB.label)}</div>
+         <div class="slot-meta" style="margin-top:6px">${modeLine}</div>
+         <div class="slot-meta" style="margin-top:8px">${fileList}</div>
+         ${overrideNote}
+       </div>`;
+    document.getElementById('btnToCountries').disabled = false;
+    document.getElementById('btnToCountries').innerHTML =
+      WB.filterable ? 'Continue &#8594;' : 'Download workbook &#8595;';
+  }catch(e){
+    box.innerHTML='';
+    showMsg('moduleMsg','err','Could not read that workbook.');
+  }
+}
+
+/* Non-filterable workbooks never reach the country step — there is nothing to
+   filter, so the grounded file(s) are handed straight over (zipped if several). */
+function afterWorkbookChosen(){
+  if(!WB.filterable){
+    window.location.href = API + '/workbook/download/' +
+      encodeURIComponent(WB.module) + '/' + encodeURIComponent(WB.workbook);
+    toast('Downloading ' + WB.label);
+    return;
+  }
+  document.getElementById('cAvailHint').textContent =
+    WB.countries.length + ' countries are present in this workbook. Anything outside that list will be flagged.';
+  renderChips();
+  setStep(2);
+}
+
+/* ── Country entry ───────────────────────────────────────────────────────── */
+
+
+/* Typing only previews; nothing is committed until Enter. */
+
+
+
+
+
+
+function addCountry(m){
+  if(!m || !m.iso3) return;
+  if(WB.picked.some(x => x.iso3 === m.iso3)){ toast(m.name + ' is already added'); return; }
+  WB.picked.push({name:m.name, iso3:m.iso3});
+  renderChips();
+}
+
+function removeCountry(iso3){
+  WB.picked = WB.picked.filter(x => x.iso3 !== iso3);
+  renderChips();
+}
+
+function clearCountries(){ WB.picked=[]; renderChips(); }
+
+function renderChips(){
+  const wrap = document.getElementById('cChips');
+  if(!WB.picked.length){
+    wrap.innerHTML = '<span id="cEmpty" style="font-size:12px;color:var(--muted)">No countries added yet.</span>';
+  } else {
+    wrap.innerHTML = WB.picked.map(c =>
+      `<span style="display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;
+             background:#fff;border:1px solid var(--line);font-size:12.5px;font-weight:700">
+         ${esc(c.name)}
+         <span style="font-weight:800;color:var(--violet)">${esc(c.iso3)}</span>
+         <span onclick="removeCountry('${esc(c.iso3)}')" title="Remove"
+               style="cursor:pointer;color:var(--muted);font-weight:800">&#215;</span>
+       </span>`).join('');
+  }
+  document.getElementById('cStats').textContent = WB.picked.length + ' selected';
+  document.getElementById('foundBadge').textContent = WB.picked.length + ' added';
+  document.getElementById('btnToSlots').disabled = WB.picked.length === 0;
+}
+
+/* ── Country picklist ──────────────────────────────────────────────────────
+   The workbook's own country list is already in memory from step 1, so every
+   keystroke filters locally — no round trip, results appear as you type.
+
+   This replaced a server-call-per-keystroke that rendered its options through
+   mkNotice(), which escapes its body: the buttons arrived as visible HTML
+   source instead of buttons. A picklist needs no markup passed through a
+   text-escaping helper, so that class of bug cannot recur here.
+
+   Ranking is deliberate — exact code first, then prefix, then contains, then a
+   subsequence match for typos. 'canda' finds Canada; 'ind' offers India and
+   Indonesia and lets the user choose rather than guessing. */
+
+let _cHi = -1;          // highlighted row for keyboard navigation
+
+/* Levenshtein, small and iterative — the list is ~130 entries, so this is
+   comfortable on every keystroke. */
+function cLev(a, b){
+  const m=a.length, n=b.length;
+  if(!m) return n;
+  if(!n) return m;
+  let prev=Array.from({length:n+1},(_,k)=>k);
+  for(let x=1;x<=m;x++){
+    const cur=[x];
+    for(let y=1;y<=n;y++)
+      cur[y]=Math.min(prev[y]+1, cur[y-1]+1, prev[y-1]+(a[x-1]===b[y-1]?0:1));
+    prev=cur;
+  }
+  return prev[n];
+}
+
+function cScore(q, entry){
+  const name=(entry.name||'').toLowerCase();
+  const iso=(entry.iso3||'').toLowerCase();
+  q=q.toLowerCase().trim();
+  if(!q) return 0;
+  if(iso===q)            return 100;   // 'IND'
+  if(name===q)           return 95;    // 'India'
+  if(name.startsWith(q)) return 80;    // 'Ind' -> India, Indonesia
+  if(iso.startsWith(q))  return 70;
+  if(name.includes(q))   return 55;    // 'united' -> Kingdom / States / Emirates
+
+  /* Typo tier. A subsequence test was tried first and could not RANK: 'inda'
+     is a subsequence of both 'india' AND 'bosnia and herzegovina', so the
+     wrong country came out on top. Edit distance orders them correctly, and
+     is measured against the name's leading slice so a short typo is not
+     penalised by the length of a long country name. */
+  const head=name.slice(0, Math.max(q.length,4));
+  const sim=1 - cLev(q,head)/Math.max(q.length,head.length);
+  return sim>=0.6 ? Math.round(sim*45) : 0;   // 27..45 — always below 'contains'
+}
+
+function cMatches(q){
+  const alias=(typeof COUNTRY_ALIASES!=='undefined')
+        ? COUNTRY_ALIASES[q.toLowerCase().trim()] : null;
+  const scored=(WB.countries||[])
+    .map(e=>{
+      let s=cScore(q,e);
+      if(alias && (e.iso3||'').toUpperCase()===String(alias).toUpperCase()) s=Math.max(s,90);
+      return {e,s};
+    })
+    .filter(x=>x.s>0)
+    .sort((a,b)=>b.s-a.s || a.e.name.localeCompare(b.e.name));
+  /* Once anything matches by substring or better, typo-tier guesses are noise —
+     'ind' should offer India and Indonesia, not Finland and Thailand. */
+  const strong=scored.filter(x=>x.s>=55);
+  return (strong.length?strong:scored).slice(0,8).map(x=>x.e);
+}
+
+function onCountryType(){
+  const q = document.getElementById('cInput').value.trim();
+  _cHi = -1;
+  if(q.length < 1){ hideResolve(); return; }
+  renderPicklist(cMatches(q), q);
+}
+
+function renderPicklist(list, q){
+  const el = document.getElementById('cResolve');
+  if(!list.length){
+    /* Distinguish "you mistyped" from "this workbook has no such rows" —
+       a real country that simply is not in the file is a different problem. */
+    const known = (typeof COUNTRY_ALIASES !== 'undefined') && COUNTRY_ALIASES[q.toLowerCase()];
+    el.style.display = 'block';
+    el.innerHTML =
+      `<div style="border:1px solid var(--line);border-radius:10px;padding:11px 13px;
+            background:var(--lilac-2);font-size:12.5px;color:var(--muted)">
+         ${known ? `<strong>${esc(q)}</strong> is a country, but this workbook has no rows for it.`
+                 : `No country matches <strong>${esc(q)}</strong>.`}
+       </div>`;
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML =
+    `<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff">
+       ${list.map((c,i) => `
+         <div class="cpick" data-i="${i}" onclick="pickCountry(${i})"
+              style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+                     padding:9px 13px;cursor:pointer;font-size:13px;
+                     border-top:${i?'1px solid var(--line-2,#eee)':'none'}">
+           <span>${esc(c.name)}</span>
+           <span style="font-weight:800;color:var(--violet);font-size:12px">${esc(c.iso3)}</span>
+         </div>`).join('')}
+     </div>
+     <div style="font-size:11px;color:var(--muted);margin-top:5px">
+       ${list.length} match${list.length===1?'':'es'} &middot; Enter picks the first, arrows to move
+     </div>`;
+  _cList = list;
+  highlight(0);
+}
+
+let _cList = [];
+
+function highlight(i){
+  _cHi = i;
+  document.querySelectorAll('#cResolve .cpick').forEach((el,n) => {
+    el.style.background = (n === i) ? 'var(--lilac-2)' : '#fff';
+  });
+}
+
+function onCountryKey(e){
+  const n = _cList.length;
+  if(e.key === 'ArrowDown' && n){ e.preventDefault(); highlight((_cHi+1) % n); return; }
+  if(e.key === 'ArrowUp'   && n){ e.preventDefault(); highlight((_cHi-1+n) % n); return; }
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    if(n) pickCountry(_cHi >= 0 ? _cHi : 0);
+    return;
+  }
+  if(e.key === 'Escape') hideResolve();
+}
+
+function pickCountry(i){
+  const c = _cList[i];
+  if(!c) return;
+  addCountry(c);
+  const box = document.getElementById('cInput');
+  box.value = ''; hideResolve(); box.focus();
+}
+
+/* The + Add button does the same as Enter. */
+function submitCountry(){
+  const q = document.getElementById('cInput').value.trim();
+  if(!q) return;
+  /* A pasted comma-separated list is expanded, taking each unambiguous match. */
+  if(q.includes(',')){
+    const parts = q.split(',').map(s => s.trim()).filter(Boolean);
+    let added = 0, unclear = [];
+    parts.forEach(p => {
+      const m = cMatches(p);
+      if(m.length === 1 || (m.length && cScore(p, m[0]) >= 90)){ addCountry(m[0]); added++; }
+      else unclear.push(p);
+    });
+    document.getElementById('cInput').value = unclear.join(', ');
+    if(unclear.length) onCountryType(); else hideResolve();
+    if(added) toast(added + ' countr' + (added===1?'y':'ies') + ' added');
+    return;
+  }
+  const m = cMatches(q);
+  if(m.length) pickCountry(0);
+}
+
+function hideResolve(){
+  const el = document.getElementById('cResolve');
+  el.style.display = 'none'; el.innerHTML = '';
+  _cList = []; _cHi = -1;
+}
+
+/* selectedCountries() is what the generate step posts. */
+function selectedCountries(){ return WB.picked.slice(); }
+
+
+/* ── Boot ──────────────────────────────────────────────────────────────────
+   The page has no onload hook — panel 1 is visible by CSS — so the module
+   list has to be fetched here. It previously sat inside startOver(), which
+   only runs after a generation, so the dropdown stayed on "Loading modules…"
+   forever on a fresh page. */
+document.addEventListener('DOMContentLoaded', loadModules);
+if (document.readyState !== 'loading') loadModules();
 </script>
 </body>
 </html>

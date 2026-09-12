@@ -32,7 +32,8 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-import anthropic
+from extractor import extract_from_bytes
+from llm_client import complete
 
 # ── ISO 3166-1 country reference (alpha-2, alpha-3, primary name) ────────────
 # Full ISO country list — SAP SF Employee Central ships 100+ localizations, so
@@ -493,9 +494,7 @@ async def extract_countries_from_document(file_data_b64: str, file_name: str) ->
 
     ext = Path(file_name).suffix.lower()
 
-    # Build the document content block(s) for Claude based on file type
-    doc_content_blocks = []
-
+    # Build extracted plain text for Claude based on file type
     if ext in ('.xlsx', '.xls'):
         try:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
@@ -508,39 +507,24 @@ async def extract_countries_from_document(file_data_b64: str, file_name: str) ->
                     if row_str.strip():
                         sheet_text += row_str + "\n"
                 text_parts.append(sheet_text)
-            combined = "\n".join(text_parts)[:20000]
-            doc_content_blocks = [{"type": "text", "text": combined}]
+            text = "\n".join(text_parts)[:20000]
         except Exception as e:
-            doc_content_blocks = [{"type": "text", "text": f"[Could not parse Excel: {e}]"}]
+            text = f"[Could not parse Excel: {e}]"
 
     elif ext == '.pdf':
-        # Claude natively reads PDFs — send as document block for best accuracy
-        doc_content_blocks = [
-            {
-                "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": file_data_b64,
-                },
-            }
-        ]
+        text = extract_from_bytes(raw_bytes, "pdf")
 
     elif ext == '.docx':
         text = _extract_docx_text(raw_bytes)
-        doc_content_blocks = [{"type": "text", "text": text}]
 
     elif ext == '.pptx':
-        text = _extract_pptx_text(raw_bytes)
-        doc_content_blocks = [{"type": "text", "text": f"[PowerPoint Presentation: {file_name}]\n\n{text}"}]
+        text = f"[PowerPoint Presentation: {file_name}]\n\n{_extract_pptx_text(raw_bytes)}"
 
     elif ext == '.ppt':
-        text = _extract_ppt_text(raw_bytes)
-        doc_content_blocks = [{"type": "text", "text": f"[PowerPoint 97-2003: {file_name}]\n\n{text}"}]
+        text = f"[PowerPoint 97-2003: {file_name}]\n\n{_extract_ppt_text(raw_bytes)}"
 
     elif ext == '.mpp':
-        text = _extract_mpp_text(raw_bytes)
-        doc_content_blocks = [{"type": "text", "text": f"[Microsoft Project File: {file_name}]\n\n{text}"}]
+        text = f"[Microsoft Project File: {file_name}]\n\n{_extract_mpp_text(raw_bytes)}"
 
     else:
         # .txt, .csv, and any other text-based format
@@ -548,9 +532,6 @@ async def extract_countries_from_document(file_data_b64: str, file_name: str) ->
             text = raw_bytes.decode("utf-8", errors="replace")[:20000]
         except Exception:
             text = f"[Binary file: {file_name}]"
-        doc_content_blocks = [{"type": "text", "text": text}]
-
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
     system = (
         "You are an expert SAP SuccessFactors implementation consultant. "
@@ -563,24 +544,15 @@ async def extract_countries_from_document(file_data_b64: str, file_name: str) ->
         "Return ONLY the JSON array, no other text."
     )
 
-    content_blocks = doc_content_blocks + [
-        {
-            "type": "text",
-            "text": (
-                f"Extract all in-scope countries from this {'SOW' if 'sow' in file_name.lower() else 'SP51/scope'} document. "
-                "Return a JSON array with 'name' and 'iso3' fields only."
-            ),
-        }
-    ]
+    prompt = (
+        f"Extract all in-scope countries from this {'SOW' if 'sow' in file_name.lower() else 'SP51/scope'} document. "
+        "Return a JSON array with 'name' and 'iso3' fields only.\n\n"
+        f"DOCUMENT CONTENT:\n{text[:20000]}"
+    )
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=1024,
-            system=system,
-            messages=[{"role": "user", "content": content_blocks}],
-        )
-        raw_text = response.content[0].text.strip()
+        raw_text = await complete(prompt, system=system, model="claude-sonnet-5")
+        raw_text = raw_text.strip()
         # Strip markdown code fences if present
         raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
         raw_text = re.sub(r"\n?```$", "", raw_text)
@@ -1008,17 +980,47 @@ def _find_slot_file(slot_info: Dict, refs_dir: Path) -> Optional[Path]:
 _VERSION_MARKER_RE = re.compile(r'\bV\d+\b', re.IGNORECASE)
 
 
+# Vendor / accelerator prefixes that identify where a template CAME FROM and
+# say nothing about what it contains. A client receiving the generated file
+# should not be handed "myConcerto_" or an internal asset number.
+# Deliberately a short, explicit list: anything cleverer risks eating a real
+# word out of the middle of a legitimate workbook name.
+# Deliberately NARROW. An earlier version also matched a bare "concerto" and a
+# bare "sf", which turned "Concerto Hall Booking.xlsx" into "Hall Booking.xlsx" —
+# eating a real word out of an unrelated file. Only prefixes that cannot plausibly
+# begin a genuine workbook title belong here.
+_VENDOR_PREFIX_RE = re.compile(
+    r'^(?:my\s*concerto|myconcerto|ap\d{3,4})[\s_\-–]+', re.IGNORECASE)
+
+
+def _strip_vendor_prefix(stem: str) -> str:
+    out = _VENDOR_PREFIX_RE.sub('', stem).strip(' _-')
+    return out or stem
+
+
 def _clean_output_basename(stem: str) -> str:
     """
-    Normalize a grounded file's name for use in the generated output
-    filename: strips a "myConcerto_" template prefix and replaces any
-    version marker (V1, V2, V10, ...) with "v1" — the output is always
-    a fresh v1 artifact of that generation, independent of whatever
-    version the source template itself happened to be.
+    Name for a GENERATED output: vendor prefix stripped, and the version marker
+    reset to v1 — the output is a fresh v1 artifact of this generation whatever
+    version the source template carried.
     """
-    name = re.sub(r'^myConcerto_', '', stem, flags=re.IGNORECASE)
-    name = _VERSION_MARKER_RE.sub('v1', name)
-    return name
+    return _VERSION_MARKER_RE.sub('v1', _strip_vendor_prefix(stem))
+
+
+def clean_download_name(file_name: str) -> str:
+    """
+    Name for a file served STRAIGHT FROM GROUNDING, where nothing is generated.
+
+    Strips the vendor prefix but KEEPS the version. The generated path resets
+    the version because it produces a new artifact; this path hands over the
+    actual grounded file, so calling a V3 workbook "v1" would misdescribe what
+    the user just received.
+    """
+    try:
+        p = Path(str(file_name or ""))
+        return _strip_vendor_prefix(p.stem) + p.suffix
+    except Exception:
+        return file_name
 
 
 def load_workbook_for_editing(ref_file_path: str) -> Optional[openpyxl.Workbook]:
@@ -1250,3 +1252,142 @@ async def run_workbook_generation(
         await emit_workbook_event(job_id, "job_error", {"message": str(e)})
     finally:
         end_workbook_stream(job_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COUNTRY RESOLUTION AGAINST A GROUNDED WORKBOOK
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# The old page asked the user to press "Scan", then offered a grid of whatever
+# countries came back. The new one lets them type. That is only safe if typing
+# is matched against THE COUNTRIES THIS WORKBOOK ACTUALLY CONTAINS rather than
+# against all 195 — three reasons, all of them things a global match gets wrong:
+#
+#   * "Kenya" typed against a workbook with no Kenyan rows must say so, not
+#     silently produce a file containing only global sheets.
+#   * The candidate set is small enough to show the user when it is ambiguous.
+#   * Fuzzy correction is survivable. Measured on the supplied Employee Data
+#     workbook, which carries 128 countries, one edit separates real pairs that
+#     are BOTH present: Iran/Iraq, Austria/Australia, Niger/Nigeria. A typo can
+#     therefore never be auto-applied — it is offered, and the user confirms.
+
+import difflib
+
+_FUZZY_CUTOFF   = 0.72   # difflib ratio below which a suggestion is not offered
+_FUZZY_MAX      = 5      # never show the user a wall of guesses
+
+
+def build_country_index(file_paths: List[str]) -> Dict[str, Any]:
+    """
+    The country dictionary for one grounded workbook (or set of them).
+
+    Returns {"countries": [{"name","iso3","count"}...], "filterable": bool,
+             "csf_sheets": int, "sheets": int}
+
+    `filterable` is the DETECTED answer — whether any sheet in the file is
+    country-scoped. It is what the admin's checkbox is pre-set from, and what
+    decides whether the user ever sees a country box. Never raises.
+    """
+    out = {"countries": [], "filterable": False, "csf_sheets": 0, "sheets": 0}
+    try:
+        csf = sheets = 0
+        for p in file_paths or []:
+            wb = load_workbook_from_path(str(p))
+            if not wb:
+                continue
+            try:
+                cl = classify_sheets(wb)
+                sheets += len(cl)
+                csf += sum(1 for v in cl.values() if v.get("type") == "csf")
+            finally:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
+        out["sheets"] = sheets
+        out["csf_sheets"] = csf
+        out["filterable"] = csf > 0
+        if csf:
+            slots = [{"ref_id": Path(p).stem} for p in (file_paths or [])]
+            parent = Path(file_paths[0]).parent if file_paths else Path(".")
+            out["countries"] = detect_countries_in_workbooks(slots, parent) or []
+    except Exception:
+        pass
+    return out
+
+
+def _index_lookup(index: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """iso3 -> entry, for the countries present in this workbook."""
+    return {str(e.get("iso3", "")).upper(): e for e in (index or []) if e.get("iso3")}
+
+
+def resolve_country(query: str, index: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Resolve one typed country against the workbook's own country list.
+
+    status:
+      'exact'     resolved with certainty — apply it, no prompt
+      'ambiguous' several plausible readings — the user must choose
+      'suggest'   one close but inexact reading — the user must confirm
+      'absent'    a real country, but this workbook has no rows for it
+      'unknown'   not a country we recognise at all
+
+    Never raises; anything unexpected returns 'unknown'.
+    """
+    res = {"query": query, "status": "unknown", "matches": [], "message": ""}
+    try:
+        q = str(query or "").strip()
+        if not q:
+            return res
+        by_iso = _index_lookup(index)
+        names = {str(e["name"]): e for e in (index or []) if e.get("name")}
+
+        # 1. Exact name, or any of the 675 aliases (ISO-2, ISO-3, common forms).
+        for name, entry in names.items():
+            if name.lower() == q.lower():
+                return {**res, "status": "exact", "matches": [entry]}
+        alias_iso = COUNTRY_ALIASES.get(q.lower())
+        if alias_iso:
+            hit = by_iso.get(alias_iso.upper())
+            if hit:
+                return {**res, "status": "exact", "matches": [hit]}
+            # A country we recognise, that this workbook simply does not cover.
+            # Offer near neighbours anyway: the supplied workbook contains
+            # Nigeria but not Niger, and a bare "not present" would leave the
+            # user guessing whether they mistyped or the data is missing.
+            near = difflib.get_close_matches(
+                ISO3_TO_NAME.get(alias_iso, q), list(names),
+                n=_FUZZY_MAX, cutoff=_FUZZY_CUTOFF)
+            hits = [names[c] for c in near]
+            msg = f"{ISO3_TO_NAME.get(alias_iso, q)} is not present in this workbook."
+            if hits:
+                msg += ("  Did you mean " +
+                        ", ".join(f"{h['name']} ({h['iso3']})" for h in hits[:2]) + "?")
+            return {**res, "status": "absent", "message": msg, "matches": hits}
+
+        # 2. Prefix / substring — 'United' legitimately means three things here,
+        #    so this returns every reading rather than guessing one.
+        subs = [e for n, e in names.items() if q.lower() in n.lower()]
+        if len(subs) == 1:
+            return {**res, "status": "exact", "matches": subs}
+        if len(subs) > 1:
+            return {**res, "status": "ambiguous", "matches": subs[:_FUZZY_MAX],
+                    "message": f"{len(subs)} countries match '{q}'."}
+
+        # 3. Typo. Offered, never applied — Iran/Iraq are one edit apart and both
+        #    appear in the reference workbook.
+        close = difflib.get_close_matches(q, list(names), n=_FUZZY_MAX,
+                                          cutoff=_FUZZY_CUTOFF)
+        if close:
+            hits = [names[c] for c in close]
+            return {**res,
+                    "status": "suggest" if len(hits) == 1 else "ambiguous",
+                    "matches": hits,
+                    "message": (f"Did you mean {hits[0]['name']} "
+                                f"({hits[0]['iso3']})?" if len(hits) == 1
+                                else f"'{q}' is close to {len(hits)} countries.")}
+
+        return {**res, "status": "unknown",
+                "message": f"'{q}' is not a country in this workbook."}
+    except Exception:
+        return res

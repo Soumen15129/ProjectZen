@@ -10,6 +10,7 @@ All 4 XML fixes preserved:
 """
 
 import os
+import re
 import json
 import uuid
 import xml.etree.ElementTree as ET
@@ -117,38 +118,147 @@ def generate_xlsx(plan: Dict, output_path: str, grounding_path: str = "") -> str
     BORDER   = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
     CENTER   = Alignment(horizontal="center", vertical="center")
 
+    # ── Status-aware fills (Items 01, 07, 02) ─────────────────────────────
+    # Additive: existing output is byte-identical when the plan has no
+    # Status or Notes column.  Applied only inside generate_xlsx — no
+    # cascade code is involved.
+    TBC_FILL     = PatternFill("solid", fgColor="FFF3CD")  # amber  — TBC / pending
+    OOS_FILL     = PatternFill("solid", fgColor="E0E0E0")  # grey   — out of scope
+    OOS_FONT     = Font(color="888888", strike=True)        # grey strikethrough
+    AI_CELL_FILL = PatternFill("solid", fgColor="FFFDE7")  # light amber — AI-draft note
+
     for sheet in plan.get("sheets", []):
         ws      = wb.create_sheet(title=_safe(sheet.get("name", "Sheet"))[:31])
         headers = [_safe(h) for h in sheet.get("headers", [])]
         rows    = sheet.get("rows", [])
         n_cols  = max(len(headers), 1)
 
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-        tc = ws.cell(1, 1, _safe(plan.get("title", "Report")))
-        tc.font = TTL_FONT
-        tc.alignment = CENTER
-        ws.row_dimensions[1].height = 28
-
+        # Headers on ROW 1, with no merged title banner above them.
+        #
+        # The banner cost more than it gave. A merged A1:K1 cell breaks sort, filter
+        # and "Format as Table" — the three things anyone actually does to a delivery
+        # spreadsheet — and it pushed headers to row 2, which is not where any tool
+        # (or reader) looks for them. Real reference plans in this estate put headers
+        # on row 1. The title already lives in the filename and the document metadata.
         for c, h in enumerate(headers, 1):
-            cell = ws.cell(2, c, h)
+            cell = ws.cell(1, c, h)
             cell.fill = HDR_FILL
             cell.font = HDR_FONT
             cell.border = BORDER
             cell.alignment = CENTER
-        ws.freeze_panes = "A3"
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = (
+            f"A1:{get_column_letter(n_cols)}{len(rows) + 1}" if rows else None)
+
+        # ── Detect status / notes column indices once per sheet ───────────
+        # Status column → TBC (amber) / OOS (grey-strikethrough) row fills.
+        # Notes  column → AI-draft accent on the specific cell.
+        # Both are purely optional: if absent, coloring falls back to the
+        # existing alt-row behaviour — no change to existing documents.
+        _h_lower      = [h.strip().lower() for h in headers]
+        _STATUS_NAMES = {"status", "req status", "requirement status",
+                         "item status", "config status"}
+        _NOTES_NAMES  = {"notes", "comments", "review notes", "ai notes", "review"}
+        status_col_idx = next((i for i, h in enumerate(_h_lower)
+                                if h in _STATUS_NAMES), None)
+        notes_col_idx  = next((i for i, h in enumerate(_h_lower)
+                                if h in _NOTES_NAMES), None)
 
         for r_idx, row in enumerate(rows):
-            fill = ALT_FILL if r_idx % 2 == 0 else None
+            # ── Determine per-row status fill ────────────────────────────
+            row_status = ""
+            if status_col_idx is not None and status_col_idx < len(row):
+                row_status = str(row[status_col_idx]).strip().lower()
+            is_tbc = row_status in (
+                "tbc", "to be confirmed", "pending",
+                "not confirmed", "tbc - pending",
+            )
+            is_oos = row_status in (
+                "out of scope", "oos", "excluded",
+                "n/a - oos", "out-of-scope", "not in scope",
+            )
+            # AI-draft flag — is the Notes cell flagged for this row?
+            is_ai_draft = False
+            if notes_col_idx is not None and notes_col_idx < len(row):
+                nv = str(row[notes_col_idx]).lower()
+                is_ai_draft = "(ai draft" in nv or "(ai)" in nv
+            # Baseline alt-row fill — used only when no status override applies.
+            base_fill = ALT_FILL if r_idx % 2 == 0 else None
+
             for c_idx, val in enumerate(row):
-                cell = ws.cell(r_idx + 3, c_idx + 1)
+                cell = ws.cell(r_idx + 2, c_idx + 1)
                 try:
                     sv = str(val)
-                    cell.value = float(sv) if sv.replace(".", "", 1).replace("-", "", 1).isdigit() else sv
+                    cell.value = (float(sv) if sv.replace(".", "", 1)
+                                  .replace("-", "", 1).isdigit() else sv)
                 except Exception:
                     cell.value = _safe(val)
                 cell.border = BORDER
-                if fill:
-                    cell.fill = fill
+                # Fill priority: OOS > TBC > AI-draft-notes-cell > alt-row
+                if is_oos:
+                    cell.fill = OOS_FILL
+                    cell.font  = OOS_FONT
+                elif is_tbc:
+                    cell.fill = TBC_FILL
+                elif (is_ai_draft and notes_col_idx is not None
+                      and c_idx == notes_col_idx):
+                    cell.fill = AI_CELL_FILL
+                elif base_fill:
+                    cell.fill = base_fill
+
+        # ── Item 04: DataValidation + ConditionalFormatting on Status ────
+        # Adds a dropdown so consultants can change status interactively, and
+        # CF rules so the row color updates live in Excel when they do.
+        # Applied only when a Status column was detected; skipped otherwise.
+        # Covers both delivery-checklist values (Not started / Done / Blocked)
+        # AND requirement/config values (Confirmed / TBC / Out of Scope).
+        if status_col_idx is not None and rows:
+            try:
+                from openpyxl.worksheet.datavalidation import DataValidation
+                from openpyxl.formatting.rule import FormulaRule
+
+                s_col_letter = get_column_letter(status_col_idx + 1)
+                last_data_row = len(rows) + 1          # +1 for header
+                dv_range  = f"{s_col_letter}2:{s_col_letter}{last_data_row}"
+                row_range = f"A2:{get_column_letter(n_cols)}{last_data_row}"
+
+                # Dropdown — superset of all status values across document types
+                dv = DataValidation(
+                    type="list",
+                    formula1=('"Confirmed,TBC,Out of Scope,'
+                              'Not started,In progress,Done,Blocked"'),
+                    allow_blank=True,
+                    showErrorMessage=True,
+                    errorTitle="Invalid status",
+                    error=("Choose from: Confirmed / TBC / Out of Scope / "
+                           "Not started / In progress / Done / Blocked"),
+                )
+                ws.add_data_validation(dv)
+                dv.sqref = dv_range
+
+                # Row-level CF rules — last rule in the list has lowest priority
+                # (Excel evaluates first match wins, top to bottom in manager).
+                # Colors deliberately match the Python-applied fills so the sheet
+                # looks the same at open time as when Status is later changed.
+                _CF_RULES = [
+                    ("Done",         "D4EDDA"),  # green
+                    ("Blocked",      "F8D7DA"),  # red
+                    ("In progress",  "D6E4F7"),  # light blue
+                    ("Not started",  "F5F5F5"),  # light grey
+                    ("TBC",          "FFF3CD"),  # amber  (matches TBC_FILL)
+                    ("Out of Scope", "E0E0E0"),  # grey   (matches OOS_FILL)
+                ]
+                for status_val, hex_color in _CF_RULES:
+                    ws.conditional_formatting.add(
+                        row_range,
+                        FormulaRule(
+                            formula=[f'${s_col_letter}2="{status_val}"'],
+                            fill=PatternFill("solid", fgColor=hex_color),
+                        ),
+                    )
+            except Exception as _cf_err:
+                # Non-fatal: DataValidation or CF is a nice-to-have.
+                print(f"   [xlsx] DataValidation/CF skipped: {_cf_err}")
 
         for c_idx, h in enumerate(headers, 1):
             col_vals = [h] + [_safe(r[c_idx - 1]) if c_idx - 1 < len(r) else "" for r in rows]
@@ -168,13 +278,15 @@ def generate_xlsx(plan: Dict, output_path: str, grounding_path: str = "") -> str
                 chart = BarChart()
                 chart.title = _safe(plan.get("title", "Chart"))[:50]
                 chart.style = 10
-                data_ref = Reference(ws_c, min_col=col, min_row=2, max_row=n + 2)
-                cats_ref = Reference(ws_c, min_col=1, min_row=3, max_row=n + 2)
+                # Rows shifted up by one when the title banner was removed: headers
+                # are now row 1 and data starts at row 2.
+                data_ref = Reference(ws_c, min_col=col, min_row=1, max_row=n + 1)
+                cats_ref = Reference(ws_c, min_col=1, min_row=2, max_row=n + 1)
                 chart.add_data(data_ref, titles_from_data=True)
                 chart.set_categories(cats_ref)
                 chart.width = 18
                 chart.height = 12
-                ws_c.add_chart(chart, "A" + str(n + 6))
+                ws_c.add_chart(chart, "A" + str(n + 5))
     except Exception as e:
         print(f"   Chart skipped: {e}")
 
@@ -394,9 +506,197 @@ def _pptx_get_accent_color(prs):
     return None
 
 
+# Layout names that carry a specific meaning. Perfectly clean, but a deck whose every
+# content slide sits on the "Thank You" design reads as a mistake.
+_PPTX_LOADED_LAYOUT = re.compile(
+    r"thank|closing|back\s*cover|divider|agenda|contents|q\s*&\s*a|questions", re.I)
+
+
+def _pptx_sample_style(path: str) -> Dict[str, Any]:
+    """
+    Learn the reference's look from its OWN SLIDES, not its theme.
+
+    Reading the theme was the obvious approach and it was wrong: the measured
+    Governance Matrix reference is built on Accenture purple 5C2D91 in Arial, yet its
+    theme is stock Office — dk2 44546A, minor font Calibri. The brand lives in explicit
+    run and fill formatting on each slide, so that is what has to be sampled. Reading
+    the theme produced output sharing not one colour with the document it was modelled
+    on, which is precisely the complaint.
+
+    Returns {font, dark, accent, light}; any key may be absent.
+    """
+    from collections import Counter
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+
+    fonts: Counter = Counter()
+    cols:  Counter = Counter()
+    try:
+        ref = Presentation(path)
+        for slide in ref.slides:
+            for sh in slide.shapes:
+                frames = []
+                if sh.has_text_frame:
+                    frames.append(sh.text_frame)
+                if sh.has_table:
+                    for row in sh.table.rows:
+                        frames.extend(c.text_frame for c in row.cells)
+                for tf in frames:
+                    for para in tf.paragraphs:
+                        for run in para.runs:
+                            if run.font.name:
+                                fonts[run.font.name] += 1
+                            try:
+                                if run.font.color and run.font.color.rgb:
+                                    cols[str(run.font.color.rgb).upper()] += 1
+                            except Exception:
+                                pass
+                # Shape fills carry the header-band and tier colours, which are the
+                # most recognisable part of a deck's identity — weighted accordingly.
+                try:
+                    if sh.fill.type == 1:                        # MSO_FILL.SOLID
+                        rgb = sh.fill.fore_color.rgb
+                        if rgb:
+                            cols[str(rgb).upper()] += 3
+                except Exception:
+                    pass
+    except Exception:
+        return {}
+
+    out: Dict[str, Any] = {}
+    if fonts:
+        out["font"] = fonts.most_common(1)[0][0]
+
+    def _rgb(h):
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+    def _lum(t):
+        return 0.299 * t[0] + 0.587 * t[1] + 0.114 * t[2]
+
+    def _chroma(t):
+        return max(t) - min(t)
+
+    # Rules chosen from the measured distribution of the real reference:
+    #
+    #   5C2D91  count 149  chroma 100   the brand purple
+    #   2E7D32  count 105  chroma  79   RACI "C" green
+    #   D32F2F  count  45  chroma 164   RACI "R" red
+    #   D97B00  count  18  chroma 217   a tier pill
+    #   F0EBF5  count 201  chroma  10   the row-banding tint
+    #   424242  count 138  chroma   0   body grey
+    #
+    # Ranking by saturation alone elected D97B00 — the loudest colour in the deck, used
+    # eighteen times. Ranking by frequency alone elects the body grey. The brand is the
+    # most FREQUENT colour that is actually coloured, which picks 5C2D91 cleanly.
+    coloured = [(h, _rgb(h)) for h in cols
+                if h not in ("FFFFFF", "000000") and _chroma(_rgb(h)) >= 30]
+    coloured.sort(key=lambda hv: -cols[hv[0]])
+    for h, t in coloured:
+        if _lum(t) < 150:
+            out["dark"] = RGBColor.from_string(h)
+            break
+
+    # Accent deliberately mirrors the header rather than taking the runner-up. The
+    # runner-up here is the RACI green, and colours that carry MEANING in the reference
+    # must not be reused as decoration — a green subtitle would read as a status.
+    if "dark" in out:
+        out["accent"] = out["dark"]
+
+    # Row banding wants the near-white TINT, which has almost no chroma and so is
+    # invisible to the rule above. A slight chroma floor matters: the most frequent
+    # light colour in the reference is FAFAFA (273 uses), a neutral off-white that
+    # would band rows in a shade indistinguishable from the page. F0EBF5 (201 uses)
+    # carries a trace of the brand purple and actually reads as banding.
+    tints = [(h, _rgb(h)) for h in cols
+             if h != "FFFFFF" and _lum(_rgb(h)) > 225 and _chroma(_rgb(h)) >= 5]
+    tints.sort(key=lambda hv: -cols[hv[0]])
+    if not tints:                          # a strictly greyscale reference
+        tints = [(h, _rgb(h)) for h in cols if h != "FFFFFF" and _lum(_rgb(h)) > 225]
+        tints.sort(key=lambda hv: -cols[hv[0]])
+    if tints:
+        out["light"] = RGBColor.from_string(tints[0][0])
+    return out
+
+
+def _pptx_theme_palette(prs) -> Dict[str, Any]:
+    """
+    Read dk2/lt2/accent1 out of the template's own theme.
+
+    Without this the renderer painted every header bar `1F497D` and every accent
+    `4472C4` — hardcoded Office blues. Measured against the Governance Matrix
+    reference, which is built on Accenture purple `5C2D91`, the output shared not one
+    colour with the document it was supposed to be modelled on.
+    """
+    from pptx.dml.color import RGBColor
+    out: Dict[str, Any] = {}
+    try:
+        theme = prs.slide_masters[0].part.part_related_by(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme")
+        xml = theme.blob.decode("utf-8", "replace")
+        scheme = re.search(r"<a:clrScheme.*?</a:clrScheme>", xml, re.S)
+        if not scheme:
+            return out
+        block = scheme.group(0)
+        for key, tag in (("dark", "dk2"), ("light", "lt2"), ("accent", "accent1")):
+            m = re.search(rf'<a:{tag}>.*?val="([0-9A-Fa-f]{{6}})".*?</a:{tag}>', block, re.S)
+            if m:
+                out[key] = RGBColor.from_string(m.group(1).upper())
+    except Exception:
+        pass
+    return out
+
+
+def _pptx_theme_font(prs) -> Optional[str]:
+    """The template's minor (body) typeface, so generated text is not left on Calibri."""
+    try:
+        theme = prs.slide_masters[0].part.part_related_by(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme")
+        xml = theme.blob.decode("utf-8", "replace")
+        m = re.search(r"<a:minorFont>\s*<a:latin[^>]*typeface=\"([^\"]+)\"", xml, re.S)
+        if m and m.group(1) and not m.group(1).startswith("+"):
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _pptx_pick_blank_layout(prs):
+    """
+    Choose the emptiest layout to paint on.
+
+    This used to be `slide_layouts[min(6, len-1)]` — a positional guess. It happens to
+    land on "Blank" in an 11-layout Office deck, which is why it looked fine, but a
+    real corporate template has dozens: in the measured Testing Strategy deck index 6
+    is "07. Three-Image Columns with Title", with five placeholders and eleven shapes.
+    Every generated slide therefore carried three image frames it never filled, and
+    every slide looked identical because they all used it.
+
+    The renderer draws its own absolutely-positioned text boxes and header bars, so
+    what it needs is a layout with as little furniture as possible. DECORATIVE shapes
+    (logos, image frames, rules) are weighted an order of magnitude above placeholders
+    because an unfilled placeholder is invisible when presenting, whereas a logo is not.
+    """
+    best, best_score = None, None
+    for master in prs.slide_masters:
+        for layout in master.slide_layouts:
+            name = (layout.name or "").strip()
+            placeholders = len(layout.placeholders)
+            decorative = max(0, len(layout.shapes) - placeholders)
+            score = decorative * 10 + placeholders
+            if _PPTX_LOADED_LAYOUT.search(name):
+                score += 25
+            if name.lower() == "blank":
+                score = -1                      # the template's own answer; take it
+            if best_score is None or score < best_score:
+                best, best_score = layout, score
+    if best is None:                            # no masters at all — should not happen
+        return prs.slide_layouts[min(6, len(prs.slide_layouts) - 1)]
+    return best
+
+
 def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str:
     from pptx import Presentation
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches, Pt, Emu
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
     from pptx.oxml.ns import qn
@@ -426,12 +726,51 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
         prs.slide_width  = Inches(13.33)
         prs.slide_height = Inches(7.5)
 
-    # ── Colour palette — prefer extracted template accent, fall back to defaults ──
+    # ── EVERY COORDINATE BELOW IS SCALED TO THE ACTUAL CANVAS ─────────────
+    #
+    # The layout numbers were written for a 13.33 x 7.5in slide, which is what this
+    # function creates when there is no template. A real corporate deck is often
+    # 10 x 5.625in, and the reference's size is KEPT when we clone it — so a title box
+    # declared 11.3in wide ran 2.3in past the right edge and a header bar declared
+    # 13.33in wide overhung by a third. Measured on the Governance Matrix reference:
+    # 41 of 41 shapes fell outside the canvas. That is the "text is outside the slide"
+    # report, and it is arithmetic, not styling.
+    #
+    # Font sizes scale with the width too: 40pt on a 13.33in slide is proportionally
+    # 30pt on a 10in one, and leaving type at full size on a smaller canvas is the
+    # other half of the overflow.
+    _DESIGN_W, _DESIGN_H = 13.33, 7.5
+    _sx = (prs.slide_width  / Inches(_DESIGN_W)) if prs.slide_width  else 1.0
+    _sy = (prs.slide_height / Inches(_DESIGN_H)) if prs.slide_height else 1.0
+
+    def X(v):                      # horizontal position / width
+        return int(Inches(v) * _sx)
+
+    def Y(v):                      # vertical position / height
+        return int(Inches(v) * _sy)
+
+    def S(pt):                     # font size, scaled by the narrower axis
+        return Pt(max(8, round(pt * min(_sx, _sy))))
+
+    if used_template and abs(_sx - 1.0) > 0.01:
+        print(f"   Canvas {round(Emu(prs.slide_width).inches, 2)}x"
+              f"{round(Emu(prs.slide_height).inches, 2)}in — scaling layout by "
+              f"{_sx:.2f}x{_sy:.2f}")
+
+    # ── Colour palette and typeface, learned from the reference ────────────
+    # Sampled from the reference's slides first (where the brand actually lives), then
+    # its theme, then the accent helper, then Office-blue defaults.
+    _style = _pptx_sample_style(grounding_path) if used_template else {}
+    _pal   = _pptx_theme_palette(prs) if used_template else {}
     _accent = _pptx_get_accent_color(prs) if used_template else None
-    HDR = _accent or RGBColor(0x1F, 0x49, 0x7D)
-    ACC = RGBColor(0x44, 0x72, 0xC4)
+    HDR = _style.get("dark")   or _pal.get("dark")   or _accent or RGBColor(0x1F, 0x49, 0x7D)
+    ACC = _style.get("accent") or _pal.get("accent") or _accent or RGBColor(0x44, 0x72, 0xC4)
     WHT = RGBColor(0xFF, 0xFF, 0xFF)
-    BG  = RGBColor(0xF2, 0xF7, 0xFF)
+    BG  = _style.get("light")  or _pal.get("light")  or RGBColor(0xF2, 0xF7, 0xFF)
+    FONT = _style.get("font") or (_pptx_theme_font(prs) if used_template else None)
+    if used_template:
+        print(f"   Reference style: font={FONT or 'default'} "
+              f"header=#{HDR} accent=#{ACC} band=#{BG}")
 
     def set_bg(slide, rgb):
         # When using a template, skip overriding background so the master design shows
@@ -443,18 +782,19 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
 
     def add_text(tf, text, size=18, bold=False, color=None, align=PP_ALIGN.LEFT):
         tf.text = ""
+        tf.word_wrap = True
         para = tf.paragraphs[0]
         para.alignment = align
         run = para.add_run()
         run.text = _safe(text, 140)
-        run.font.size = Pt(size)
+        run.font.size = S(size)
         run.font.bold = bold
+        if FONT:
+            run.font.name = FONT
         if color:
             run.font.color.rgb = color
 
-    # Use blank layout — pick the one least likely to inject placeholder content
-    _layouts = prs.slide_layouts
-    blank = _layouts[min(6, len(_layouts) - 1)]
+    blank = _pptx_pick_blank_layout(prs)
 
     for sl in plan.get("slides", []):
         t = sl.get("type", "bullets")
@@ -462,40 +802,42 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
         if t == "title":
             slide = prs.slides.add_slide(blank)
             set_bg(slide, BG)
-            b = slide.shapes.add_textbox(Inches(1), Inches(2.2), Inches(11.3), Inches(1.5))
+            b = slide.shapes.add_textbox(X(1), Y(2.2), X(11.3), Y(1.5))
             add_text(b.text_frame, sl.get("title", ""), 40, True, HDR, PP_ALIGN.CENTER)
             if sl.get("subtitle"):
-                b2 = slide.shapes.add_textbox(Inches(1), Inches(3.9), Inches(11.3), Inches(0.8))
+                b2 = slide.shapes.add_textbox(X(1), Y(3.9), X(11.3), Y(0.8))
                 add_text(b2.text_frame, sl["subtitle"], 20, False, ACC, PP_ALIGN.CENTER)
 
         elif t == "bullets":
             slide = prs.slides.add_slide(blank)
             set_bg(slide, WHT)
-            bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.33), Inches(1.2))
+            bar = slide.shapes.add_shape(1, X(0), Y(0), X(13.33), Y(1.2))
             bar.fill.solid()
             bar.fill.fore_color.rgb = HDR
             bar.line.fill.background()
-            tb = slide.shapes.add_textbox(Inches(0.3), Inches(0.15), Inches(12.5), Inches(0.9))
+            tb = slide.shapes.add_textbox(X(0.3), Y(0.15), X(12.5), Y(0.9))
             add_text(tb.text_frame, sl.get("title", ""), 22, True, WHT)
-            bx = slide.shapes.add_textbox(Inches(0.5), Inches(1.4), Inches(12), Inches(5.5))
+            bx = slide.shapes.add_textbox(X(0.5), Y(1.4), X(12), Y(5.5))
             tf = bx.text_frame
             tf.word_wrap = True
             tf.text = ""
             for i, b in enumerate(sl.get("bullets", [])):
                 p = tf.add_paragraph() if i > 0 else tf.paragraphs[0]
                 p.text = f"  \u2022  {_safe(b, 120)}"
-                p.space_after = Pt(8)
+                p.space_after = S(8)
                 if p.runs:
-                    p.runs[0].font.size = Pt(16)
+                    p.runs[0].font.size = S(16)
+                    if FONT:
+                        p.runs[0].font.name = FONT
 
         elif t == "table":
             slide = prs.slides.add_slide(blank)
             set_bg(slide, WHT)
-            bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.33), Inches(1.2))
+            bar = slide.shapes.add_shape(1, X(0), Y(0), X(13.33), Y(1.2))
             bar.fill.solid()
             bar.fill.fore_color.rgb = HDR
             bar.line.fill.background()
-            tb = slide.shapes.add_textbox(Inches(0.3), Inches(0.15), Inches(12.5), Inches(0.9))
+            tb = slide.shapes.add_textbox(X(0.3), Y(0.15), X(12.5), Y(0.9))
             add_text(tb.text_frame, sl.get("title", ""), 22, True, WHT)
             hdrs = sl.get("headers", [])
             rows = sl.get("rows", [])
@@ -504,34 +846,46 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
                 nr  = len(rows)
                 tbl = slide.shapes.add_table(
                     nr + 1, nc,
-                    Inches(0.5), Inches(1.4),
-                    Inches(12.3), Inches(min(nr * 0.5 + 0.5, 5.5))
+                    X(0.5), Y(1.4),
+                    X(12.3), Y(min(nr * 0.5 + 0.5, 5.5))
                 ).table
+                # Cell type also has to scale: 18pt default in a 0.35in row on a 10in
+                # canvas overflows the row and pushes the table past the slide.
+                _cell_pt = S(11)
                 for c, h in enumerate(hdrs):
                     cell = tbl.cell(0, c)
                     cell.text = _safe(h, 50)
                     cell.fill.solid()
                     cell.fill.fore_color.rgb = HDR
-                    if cell.text_frame.paragraphs[0].runs:
-                        cell.text_frame.paragraphs[0].runs[0].font.color.rgb = WHT
-                        cell.text_frame.paragraphs[0].runs[0].font.bold = True
+                    for _p in cell.text_frame.paragraphs:
+                        for _r in _p.runs:
+                            _r.font.size = _cell_pt
+                            _r.font.color.rgb = WHT
+                            _r.font.bold = True
+                            if FONT:
+                                _r.font.name = FONT
                 for r, row in enumerate(rows):
-                    bg = RGBColor(0xDC, 0xE6, 0xF1) if r % 2 == 0 else WHT
+                    bg = BG if r % 2 == 0 else WHT
                     for c, val in enumerate(row):
                         if c < nc:
                             cell = tbl.cell(r + 1, c)
                             cell.text = _safe(val, 80)
                             cell.fill.solid()
                             cell.fill.fore_color.rgb = bg
+                            for _p in cell.text_frame.paragraphs:
+                                for _r in _p.runs:
+                                    _r.font.size = _cell_pt
+                                    if FONT:
+                                        _r.font.name = FONT
 
         elif t == "chart":
             slide = prs.slides.add_slide(blank)
             set_bg(slide, WHT)
-            bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.33), Inches(1.2))
+            bar = slide.shapes.add_shape(1, X(0), Y(0), X(13.33), Y(1.2))
             bar.fill.solid()
             bar.fill.fore_color.rgb = HDR
             bar.line.fill.background()
-            tb = slide.shapes.add_textbox(Inches(0.3), Inches(0.15), Inches(12.5), Inches(0.9))
+            tb = slide.shapes.add_textbox(X(0.3), Y(0.15), X(12.5), Y(0.9))
             add_text(tb.text_frame, sl.get("title", ""), 22, True, WHT)
             cats = sl.get("categories", ["A", "B", "C"])
             vals = sl.get("values", [1, 2, 3])
@@ -541,7 +895,7 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
                 cd.add_series(_safe(sl.get("series_name", "Series"), 40), vals)
                 chart = slide.shapes.add_chart(
                     XL_CHART_TYPE.COLUMN_CLUSTERED,
-                    Inches(0.5), Inches(1.4), Inches(12.3), Inches(5.5), cd
+                    X(0.5), Y(1.4), X(12.3), Y(5.5), cd
                 ).chart
                 chart.has_title = True
                 chart.chart_title.text_frame.text = _safe(sl.get("title", ""), 80)

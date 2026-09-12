@@ -1022,7 +1022,48 @@ button{font-family:inherit;cursor:pointer}
 .roleseg button.on{background:var(--surface);color:var(--violet);box-shadow:var(--shadow)}
 .avatar{width:34px;height:34px;border-radius:50%;flex:0 0 auto;
   background:linear-gradient(135deg,var(--purple),var(--violet));display:grid;place-items:center;
-  color:#fff;font-weight:800;font-size:13px}
+  color:#fff;font-weight:800;font-size:13px;
+  border:none;padding:0;font-family:inherit;cursor:pointer;transition:transform .12s ease}
+.avatar:hover{transform:scale(1.06)}
+.avatar:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+
+/* ── account popups ────────────────────────────────────────────────────────
+   Same overlay grammar as the command palette so these read as part of the app
+   rather than something bolted on. Anchored under the avatar rather than centred,
+   because that is where the click came from. */
+.sheet{position:fixed;inset:0;z-index:70;display:none;background:rgba(40,10,66,.28);backdrop-filter:blur(3px)}
+.sheet.show{display:block;animation:fade .16s ease}
+.sbox{position:absolute;top:60px;right:18px;width:min(380px,calc(100vw - 36px));
+  background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 30px 80px rgba(40,0,70,.35);overflow:hidden;animation:pop .18s ease}
+.shead{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.shead .avatar{width:42px;height:42px;font-size:15px;cursor:default}
+.shead .avatar:hover{transform:none}
+.sname{font-weight:800;font-size:13.5px;color:var(--ink);line-height:1.35;word-break:break-all}
+.smeta{font-size:11.5px;color:var(--muted);margin-top:3px}
+.sclose{margin-left:auto;border:none;background:transparent;cursor:pointer;color:var(--muted);
+  font-size:17px;line-height:1;padding:3px 5px;border-radius:6px;font-family:inherit}
+.sclose:hover{background:var(--bg);color:var(--ink)}
+.srow{display:flex;justify-content:space-between;gap:16px;padding:9px 18px;font-size:12.5px}
+.srow+.srow{border-top:1px solid var(--line-2)}
+.srow .k{color:var(--muted);flex:0 0 auto}
+.srow .v{color:var(--ink);font-weight:700;text-align:right;word-break:break-word}
+.sdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+.sdot.on{background:#2F8F5B;box-shadow:0 0 6px #2F8F5B}
+.sdot.off{background:#C0296B;box-shadow:0 0 6px #C0296B}
+.sfoot{padding:11px 18px;border-top:1px solid var(--line);background:var(--lilac-2)}
+.slink{display:flex;align-items:center;justify-content:space-between;width:100%;border:none;
+  background:transparent;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;
+  color:var(--dk);padding:3px 0}
+.slink:hover{color:var(--purple)}
+.snote{font-size:11px;color:var(--muted);line-height:1.55;padding:11px 18px 14px}
+.speriods{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line-2)}
+.sper{background:var(--surface);padding:13px 8px;text-align:center}
+.sper .pl{font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.sper .pv{font-size:17px;font-weight:800;color:var(--ink);margin-top:4px;font-variant-numeric:tabular-nums}
+.sper .ps{font-size:10.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+.sper.hi .pv{color:var(--dk)}
+.sload{padding:28px 18px;text-align:center;font-size:12.5px;color:var(--muted)}
 .shell{flex:1;display:flex;min-height:0}
 
 /* rail */
@@ -1284,7 +1325,7 @@ select.fi{appearance:none;background:var(--lilac-2) url("data:image/svg+xml,%3Cs
       <button data-role="reviewer" class="on">Reviewer</button>
       <button data-role="lead">Lead</button>
     </div>
-    <div class="avatar">PZ</div>
+    <button class="avatar" id="avatarBtn" aria-haspopup="dialog" aria-label="Account">PZ</button>
   </header>
   <div class="shell">
     <aside class="rail" id="rail"></aside>
@@ -1301,6 +1342,14 @@ select.fi{appearance:none;background:var(--lilac-2) url("data:image/svg+xml,%3Cs
     </div>
     <div class="presults" id="presults"></div>
   </div>
+</div>
+
+<div class="sheet" id="profileSheet" aria-hidden="true">
+  <div class="sbox" role="dialog" aria-label="Account" id="profileBox"></div>
+</div>
+
+<div class="sheet" id="usageSheet" aria-hidden="true">
+  <div class="sbox" role="dialog" aria-label="Usage and cost" id="usageBox"></div>
 </div>
 
 <div class="toasts" id="toasts"></div>
@@ -1351,6 +1400,7 @@ const A=[
  ['config_workbook','Configuration Workbook','documentation','Prepare',0,'Maintain the master list of all configuration decisions and system parameters.'],
  ['status_report_gen','Status Report Generator','documentation','Realize',0,'Compile a live status report across all six workstreams.'],
  ['test_script_gen','Test Script Generator','documentation','Realize',0,'Automatically generate testing scripts based on configuration.'],
+ ['data_model_agent','Data Model Agent','documentation','Realize',0,'Turn a configuration workbook into SuccessFactors Employee Central data model XML.'],
  ['docs_library','Documents Library','documentation','Run & Evolve',0,'Centralized repository for all generated documentation and artifacts.'],
  ['system_assessment','System Assessment','sf_config','Discover',0,'Read a tenant and summarise its current configuration.'],
  ['sf_build','SF Build','sf_config','Realize',1,'Apply configuration, workflows and business rules to SF.'],
@@ -1591,15 +1641,181 @@ function renderPal(q){
 }
 function openPal(){PALette.classList.add('show');PALette.setAttribute('aria-hidden','false');PIN.value='';renderPal('');setTimeout(()=>PIN.focus(),30);}
 function closePal(){PALette.classList.remove('show');PALette.setAttribute('aria-hidden','true');}
+
+/* ---------------- account popups ----------------
+   The only live data on this screen. Identity comes from the Claude CLI via
+   /account, spend from this install's run-log traces via /account/usage.
+
+   Both fetch ON CLICK and never on load, so the page still boots with zero network
+   calls and a backend that is down costs nothing more than a popup that says so.
+
+   No backslashes anywhere below on purpose: this whole document is embedded in a
+   template literal by the wrapper, which eats single backslashes and would quietly
+   turn a regex like slash-backslash-s into slash-s. */
+function apiBase(){ try{ return window.parent.location.origin; }catch(_){ return ''; } }
+function apiGet(path){
+  return fetch(apiBase()+path,{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  });
+}
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function nfmt(n){ return Number(n||0).toLocaleString(); }
+function usd(n){ return '$'+Number(n||0).toFixed(2); }
+function cap(s){ s=String(s||''); return s? s.charAt(0).toUpperCase()+s.slice(1) : ''; }
+
+/* Initials from the email local part: "ai.som15129" -> "AS". Done without a regex
+   for the backslash reason above. */
+function initialsOf(email){
+  var s=String(email||'').trim();
+  if(!s) return 'PZ';
+  var local=s.split('@')[0];
+  var parts=local.split('.').filter(function(p){return p.length>0;});
+  if(parts.length>=2) return (parts[0].charAt(0)+parts[1].charAt(0)).toUpperCase();
+  return local.substring(0,2).toUpperCase();
+}
+/* A personal Claude account gets an auto-generated org named "<email>'s Organization",
+   which tells a reader nothing. The launcher suppresses exactly this string when it
+   prints the account (Start-ProjectZen.ps1), and the popup follows suit. */
+function orgLabel(a){
+  var org=String(a.orgName||'').trim();
+  if(!org) return '';
+  if(org===String(a.email||'')+"'s Organization") return '';
+  return org;
+}
+function authLabel(m){
+  var s=String(m||'').toLowerCase();
+  if(s.indexOf('sso')>=0)       return 'Work account (SSO)';
+  if(s.indexOf('claude.ai')>=0) return 'Claude account';
+  if(s.indexOf('api')>=0)       return 'API key';
+  return m||'—';
+}
+
+/* One cached read of the account, shared by the topbar avatar and the popup.
+   They MUST agree: the header showing "PZ" while the popup showed "AS" is one
+   person rendered as two, which reads as a bug because it is one. Caching also
+   means the popup opens instantly on every click after the first. */
+var _acct=null,_acctPromise=null;
+function loadAccount(){
+  if(_acct) return Promise.resolve(_acct);
+  if(!_acctPromise){
+    _acctPromise=apiGet('/account').then(function(a){
+      _acct=a; return a;
+    }).catch(function(err){
+      _acctPromise=null;          // let a later click retry rather than latch the failure
+      throw err;
+    });
+  }
+  return _acctPromise;
+}
+/* Fail-silent by design: if the account cannot be read the avatar simply keeps its
+   placeholder initials and the page carries on knowing nothing about it. */
+function paintAvatar(){
+  loadAccount().then(function(a){
+    if(!a||!a.email) return;
+    var el=document.getElementById('avatarBtn');
+    if(el){ el.textContent=initialsOf(a.email); el.title=a.email; }
+  }).catch(function(){});
+}
+
+function sheetOpen(id){var el=document.getElementById(id);el.classList.add('show');el.setAttribute('aria-hidden','false');}
+function sheetClose(id){var el=document.getElementById(id);el.classList.remove('show');el.setAttribute('aria-hidden','true');}
+function closeSheets(){sheetClose('profileSheet');sheetClose('usageSheet');}
+
+function openProfile(){
+  var box=document.getElementById('profileBox');
+  if(!_acct) box.innerHTML='<div class="sload">Reading your account…</div>';
+  sheetOpen('profileSheet');
+  loadAccount().then(function(a){
+    if(a.error && !a.email) throw new Error(a.error);
+    var org=orgLabel(a), rows='';
+    rows+='<div class="srow"><span class="k">Status</span><span class="v">'
+        + '<span class="sdot '+(a.loggedIn?'on':'off')+'"></span>'
+        + (a.loggedIn?'Signed in':'Signed out')+'</span></div>';
+    if(a.plan) rows+='<div class="srow"><span class="k">Plan</span><span class="v">'+esc(cap(a.plan))+'</span></div>';
+    rows+='<div class="srow"><span class="k">Sign-in</span><span class="v">'+esc(authLabel(a.authMethod))+'</span></div>';
+    if(org)    rows+='<div class="srow"><span class="k">Organisation</span><span class="v">'+esc(org)+'</span></div>';
+    box.innerHTML=
+      '<div class="shead">'
+      + '<div class="avatar">'+esc(initialsOf(a.email))+'</div>'
+      + '<div><div class="sname">'+esc(a.email||'Not signed in')+'</div>'
+      + '<div class="smeta">Actual user account</div></div>'
+      + '<button class="sclose" data-sclose="profileSheet" aria-label="Close">✕</button>'
+      + '</div>'
+      + rows
+      + '<div class="sfoot"><button class="slink" id="usageLink">'
+      + '<span>View usage &amp; cost</span><span>→</span></button></div>';
+  }).catch(function(err){
+    box.innerHTML='<div class="shead"><div><div class="sname">Account unavailable</div>'
+      + '<div class="smeta">'+esc(String(err.message||err))+'</div></div>'
+      + '<button class="sclose" data-sclose="profileSheet" aria-label="Close">✕</button></div>'
+      + '<div class="snote">The server could not be reached, or the Claude CLI has not '
+      + 'reported a sign-in yet. Nothing else on this page is affected.</div>';
+  });
+}
+
+function openUsage(){
+  var box=document.getElementById('usageBox');
+  box.innerHTML='<div class="sload">Adding up your runs…</div>';
+  sheetClose('profileSheet');
+  sheetOpen('usageSheet');
+  apiGet('/account/usage').then(function(u){
+    if(u.error) throw new Error(u.error);
+    var P=u.periods||{}, m=P.month||{};
+    function per(key,label,hi){
+      var p=P[key]||{};
+      return '<div class="sper'+(hi?' hi':'')+'"><div class="pl">'+label+'</div>'
+           + '<div class="pv">'+usd(p.cost_usd)+'</div>'
+           + '<div class="ps">'+nfmt(p.runs)+' run'+(p.runs===1?'':'s')+'</div></div>';
+    }
+    /* Zero runs is a real answer, not an error — this account simply has not
+       generated anything yet. Saying so beats three silent $0.00 tiles. */
+    var body = (u.matched_runs>0)
+      ? '<div class="srow"><span class="k">Claude calls</span><span class="v">'+nfmt(m.calls)+'</span></div>'
+      + '<div class="srow"><span class="k">Input tokens (billable)</span><span class="v">'+nfmt(m.billable_input)+'</span></div>'
+      + '<div class="srow"><span class="k">Output tokens</span><span class="v">'+nfmt(m.output)+'</span></div>'
+      + '<div class="srow"><span class="k">Cache reads</span><span class="v">'+nfmt(m.cache_read)+'</span></div>'
+      + '<div class="srow"><span class="k">Cache hit rate</span><span class="v">'+(m.cache_hit_pct||0)+'%</span></div>'
+      : '<div class="sload">No ProjectZen runs recorded for this account yet.</div>';
+
+    box.innerHTML=
+      '<div class="shead"><div><div class="sname">Usage &amp; cost</div>'
+      + '<div class="smeta">ProjectZen · '+esc(u.account||'this account')+'</div></div>'
+      + '<button class="sclose" data-sclose="usageSheet" aria-label="Close">✕</button></div>'
+      + '<div class="speriods">'+per('today','Today')+per('week','7 days')+per('month','30 days',true)+'</div>'
+      + body
+      + '<div class="snote">What <b>this account</b> spent in ProjectZen, as reported by '
+      + 'the Claude SDK for each call — not an estimate. Runs made from any other '
+      + 'account are not counted. This is not your total Claude usage across Claude '
+      + 'Code and claude.ai: ProjectZen cannot read that. Traces are kept for '
+      + esc(String((u.bounded||{}).max_age_days||30))+' days or '
+      + esc(String((u.bounded||{}).max_runs||50))+' runs, so the 30-day column is also '
+      + 'everything currently stored for you.</div>';
+  }).catch(function(err){
+    box.innerHTML='<div class="shead"><div><div class="sname">Usage unavailable</div>'
+      + '<div class="smeta">'+esc(String(err.message||err))+'</div></div>'
+      + '<button class="sclose" data-sclose="usageSheet" aria-label="Close">✕</button></div>'
+      + '<div class="snote">No run traces could be read. Nothing else on this page is affected.</div>';
+  });
+}
 function moveSel(d){const rows=[...document.querySelectorAll('.pr')];if(!rows.length)return;rows[palSel]&&rows[palSel].classList.remove('sel');palSel=(palSel+d+rows.length)%rows.length;rows[palSel].classList.add('sel');rows[palSel].scrollIntoView({block:'nearest'});}
 
 /* ---------------- navigation ---------------- */
 function go(view){state.view=view;if(view==='catalog')state.ws='all';render();document.querySelector('main').scrollTop=0;}
 function openAgent(id){
-  if(['status_report_gen','test_script_gen','docs_library'].includes(id)){toast('🚧 Under Construction: Coming Soon!');return;}
-  if(id==='governance_doc'){window.parent.navigateToPage('documentation_governance.html');return;}
+  if(['status_report_gen','docs_library'].includes(id)){toast('🚧 Under Construction: Coming Soon!');return;}
+  // Both tiles open the same page; the portal tells it which document family
+  // to offer, so Governance users are not shown Functional templates.
+  if(id==='governance_doc'){window.parent.navigateToPage('documentation_governance.html?portal=governance');return;}
   if(id==='config_workbook'){window.parent.navigateToPage('documentation_workbook.html');return;}
-  if(id==='sf_functional_doc'){window.parent.navigateToPage('documentation_governance.html');return;}
+  if(id==='sf_functional_doc'){window.parent.navigateToPage('documentation_governance.html?portal=sf');return;}
+  // Adhoc-only portal: one template, no cascade. Same page, different catalogue.
+  if(id==='test_script_gen'){window.parent.navigateToPage('documentation_governance.html?portal=testscript');return;}
+  if(id==='data_model_agent'){window.parent.navigateToPage('documentation_governance.html?portal=workbook');return;}
   if(id==='doc_grounding'){window.parent.navigateToPage('Documentation_UserPage.html#grounding');return;}
   state.agent=id;state.view='workspace';render();document.querySelector('main').scrollTop=0;
 }
@@ -1633,10 +1849,26 @@ document.getElementById('roleseg').addEventListener('click',e=>{
   if(state.view==='catalog'&&state.ws==='all')render();
 });
 document.getElementById('cmdbtn').addEventListener('click',openPal);
+document.getElementById('avatarBtn').addEventListener('click',openProfile);
+/* One delegated handler for both sheets: close on the X, close on the backdrop,
+   and hop from the profile to the usage panel. Delegation matters because the
+   panel bodies are re-rendered after each fetch, so anything bound directly to a
+   button inside them would be thrown away the moment the data arrived. */
+['profileSheet','usageSheet'].forEach(function(id){
+  document.getElementById(id).addEventListener('click',function(e){
+    if(e.target===this){ sheetClose(id); return; }
+    var x=e.target.closest('[data-sclose]'); if(x){ sheetClose(x.dataset.sclose); return; }
+    if(e.target.closest('#usageLink')){ openUsage(); }
+  });
+});
 PALette.addEventListener('click',e=>{if(e.target===PALette)closePal();const pr=e.target.closest('.pr');if(pr){palItems[+pr.dataset.idx].act();}});
 PIN.addEventListener('input',e=>renderPal(e.target.value));
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();PALette.classList.contains('show')?closePal():openPal();return;}
+  /* Escape closes the account sheets too. Handled before the palette's early
+     return below, which would otherwise swallow the key whenever the palette
+     happened to be shut. */
+  if(e.key==='Escape'&&document.querySelector('.sheet.show')){e.preventDefault();closeSheets();return;}
   if(!PALette.classList.contains('show'))return;
   if(e.key==='Escape')closePal();
   else if(e.key==='ArrowDown'){e.preventDefault();moveSel(1);}
@@ -1650,11 +1882,16 @@ if(initHash.startsWith('#ws=')){
   if(WS.some(w => w.id === targetWs)) {
     state.ws = targetWs;
     state.view = 'catalog';
-    state.lockWs = targetWs;
+    /* lockWs deliberately not set: the rail always lists all six workstreams. */
   }
 }
 
 render();
+/* Resolve the real initials for the header. One small request, fired after the
+   first paint and never awaited — the page is already usable, and the avatar just
+   settles from its placeholder to the signed-in user a moment later. Usage is
+   still read only on demand. */
+paintAvatar();
 <\/script>
 </body>
 </html>
@@ -1682,13 +1919,15 @@ render();
             // Inject the hash into the app HTML so it knows which workspace to load
             html = html.replace('const initHash = window.location.hash;', 'const initHash = "' + hash + '";');
             
-            // Add a Back button to return to the landing page
-            const backBtn = '<button onclick="window.parent.navigateLanding()" style="position:fixed; bottom:20px; left:20px; z-index:9999; padding:10px 20px; background:#460073; color:#fff; border-radius:20px; border:none; cursor:pointer; font-weight:800; font-family:sans-serif; box-shadow:0 4px 12px rgba(70,0,115,0.3); font-size: 13px; transition: transform 0.15s">&larr; Back to Landing</button>';
-            html = html.replace('</body>', backBtn + '</body>');
+            // No Back button: the agent catalog is the landing page now, so there is
+            // nowhere to go back to.
             
             frame.srcdoc = html;
         } else {
-            frame.srcdoc = window.LANDING_HTML;
+            // The agent catalog is the landing page. LANDING_HTML (the tile page) is
+            // still defined above but no longer rendered — to bring the tiles back,
+            // point this one line at window.LANDING_HTML again.
+            frame.srcdoc = window.APP_HTML;
         }
     }
     

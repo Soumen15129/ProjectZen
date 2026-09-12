@@ -1,15 +1,57 @@
-# See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
+# Fly deploy — AUTO-DEPLOY ON PUSH IS DISABLED ON PURPOSE.
+#
+# Why
+# ---
+# ProjectZen authenticates every Claude call through the `claude` CLI running under
+# the local user's Claude Enterprise seat. There is no API-key path anywhere in the
+# codebase (see middleware/llm_client.py), and the keys were deliberately revoked.
+#
+# The container this workflow ships (see ../../Dockerfile) is python:3.12-slim with
+# pip requirements only: no Node.js, no `claude` CLI, and no signed-in seat. So the
+# deployed service starts, serves the UI, accepts an upload — and then every single
+# generation fails at the first LLM call.
+#
+# Adding Node to the image does not fix it. The seat is authenticated per user via an
+# interactive OAuth login; a shared server has no user to authenticate as. Making
+# this work at all would mean going back to an API key, which is precisely what the
+# migration removed.
+#
+# So this workflow ran on every push to main and republished a service that cannot do
+# the one thing it exists to do.
+#
+# What changed
+# ------------
+# The `push` trigger is removed; the workflow is manual only. Nothing is deleted, so
+# if an API-key-backed server build is ever wanted, restore the trigger below.
+#
+# The frontend is unaffected — it is static and still auto-publishes via pages.yml.
+# Users run the backend locally with Start-ProjectZen.bat.
+#
+# Diagnose any deployment with:  GET /health/llm
 
-name: Fly Deploy
+name: Fly Deploy (manual only)
+
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          Type "yes" to confirm. The deployed backend CANNOT generate documents
+          without a `claude` CLI and a signed-in seat inside the container.
+        required: true
+        default: "no"
+
+  # Restore only if the backend gains a server-side auth path:
+  # push:
+  #   branches:
+  #     - main
+
 jobs:
   deploy:
     name: Deploy app
+    if: ${{ github.event.inputs.confirm == 'yes' }}
     runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    concurrency: deploy-group
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master

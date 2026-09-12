@@ -1,10 +1,15 @@
 # ── Web framework ──────────────────────────────────────────────────────────────
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-python-multipart==0.0.9
+# Version floors (not exact pins) — claude-agent-sdk's mcp dependency needs
+# anyio>=4.5, which the old fastapi==0.111.0 pin's starlette (anyio<5,>=3.4.0
+# — compatible, but only with a newer starlette than 0.111.0 bundles) can't
+# satisfy at that exact old version.
+fastapi>=0.115.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
 
-# ── Anthropic SDK (updated to support claude-opus-4-8 / claude-sonnet-4-6) ────
-anthropic>=0.40.0
+# ── Claude Agent SDK (runs via the local `claude` CLI, authenticated against ──
+# ── the user's Claude Enterprise seat — no ANTHROPIC_API_KEY) ──────────────────
+claude-agent-sdk>=0.2.0
 
 # ── LangGraph + LangSmith (agent orchestration & observability) ────────────────
 langgraph>=0.2.0

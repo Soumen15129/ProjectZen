@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProjectZen &middot; Governance Portal (No Login)</title>
 <style>
+/* Inter is the landing page's face (frontend/index.html). This page previously ran on
+   system fonts only, which is why it read differently from every other screen even
+   though the palette already matched. Serves all four portals — governance, sf,
+   testscript and workbook — since they are one file behind a ?portal= parameter. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 /* ═══════════════════════════════════════════════════════
    DESIGN SYSTEM — ProjectZen Prototype (Accenture Purple, light)
    Same token names as before; values remapped to match
@@ -60,9 +66,20 @@
   --input-bg:  var(--surface2);
   --card:      var(--surface);
 
-  /* Typography (prototype system stack) */
+  /* Typography — Inter leads, matching the landing page. The old system stack is kept
+     behind it as the fallback, so a blocked font CDN degrades to exactly what this
+     page rendered before rather than to a default serif. */
   --mono: 'SF Mono',ui-monospace,'Cascadia Code',Consolas,Menlo,monospace;
-  --sans: 'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+  --sans: 'Inter','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+
+  /* INK VARIANTS — for small text on a pale tint of the same hue. The brand values
+     are right for fills, borders and buttons, but as 11px label text on their own
+     tinted background they fail WCAG AA on this light ground:
+         --claude on --claude-bg  2.57:1        --blue on white  2.72:1
+     These darkened twins clear 4.5:1 without leaving the brand family. */
+  --claude-ink: #B8460E;   /* 4.85:1 on --claude-bg */
+  --blue-ink:   #1D4ED8;   /* 6.70:1 on white       */
+  --green-ink:  #25764A;   /* 5.05:1 on --green-bg  */
 
   /* Shadows */
   --shadow:    0 1px 2px rgba(70,0,115,.04), 0 8px 24px rgba(70,0,115,.06);
@@ -232,7 +249,9 @@ body::after {
   padding: 7px 16px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--claude-l);
+  /* --claude-l on a 10% orange tint is 2.1:1; the ink twin clears AA. The icon below
+     keeps the bright brand gradient, which is correct — it carries no text. */
+  color: var(--claude-ink);
 }
 
 .claude-badge-icon {
@@ -649,20 +668,28 @@ body::after {
   animation: gpulse 2s infinite;
 }
 
+/* Metrics matched to the landing page's .hero h1 (frontend/index.html). */
 .hero-title {
   font-family: var(--sans);
-  font-size: clamp(30px, 4.5vw, 50px);
+  font-size: clamp(2rem, 3.5vw, 2.8rem);
   font-weight: 900;
-  letter-spacing: -1.5px;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
   color: var(--text);
   margin-bottom: 14px;
 }
 
+/* The gradient used to run violet -> --claude-l (#FF9060), which on a white ground is
+   a 2.1:1 pale orange — the emphasised words faded out at exactly the point they were
+   meant to land. Now it stays inside the Accenture violet family, both ends legible.
+   `color` is declared first as the fallback: if background-clip:text is unsupported,
+   -webkit-text-fill-color is too, so the text renders violet instead of invisible. */
 .hero-title em {
   font-style: italic;
-  background: linear-gradient(135deg, var(--acc-l) 0%, var(--claude-l) 100%);
+  color: var(--acc-l);
+  background: linear-gradient(135deg, var(--acc) 0%, var(--acc-l) 55%, var(--purple) 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -822,9 +849,14 @@ textarea { min-height: 110px; line-height: 1.7; resize: vertical; }
 input[type="file"] { display: none; }
 
 /* Saved indicator */
-.saved-indicator { display: none; align-items: center; gap: 7px; margin-top: 8px; font-size: 12px; font-weight: 500; color: var(--green); }
+.saved-indicator { display: none; align-items: flex-start; gap: 7px; margin-top: 8px; font-size: 12px; font-weight: 500; color: var(--green-ink); line-height: 1.5; }
 .saved-indicator.show { display: flex; }
-.saved-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+.saved-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: var(--green); box-shadow: 0 0 6px var(--green); }
+/* Nothing grounded is a legitimate state, not an error — amber, and phrased as a
+   consequence ("output follows Claude's defaults") rather than a warning. */
+.saved-indicator.none { color: var(--gold); }
+.saved-indicator.none .saved-dot { background: var(--gold); box-shadow: 0 0 6px var(--gold-b); }
+.saved-indicator .si-what { font-weight: 700; }
 
 /* Admin save row */
 .admin-save-row { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
@@ -891,9 +923,9 @@ input[type="file"] { display: none; }
 
 .type-chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 .chip { font-size: 9px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
-.chip.doc { background: rgba(77,159,255,0.1);  border: 1px solid rgba(77,159,255,0.2);  color: var(--blue); }
+.chip.doc { background: rgba(77,159,255,0.1);  border: 1px solid rgba(77,159,255,0.2);  color: var(--blue-ink); }
 .chip.xl  { background: rgba(47,143,91,0.08);  border: 1px solid rgba(47,143,91,0.2);  color: var(--green); }
-.chip.ppt { background: rgba(255,107,43,0.08); border: 1px solid rgba(255,107,43,0.2); color: var(--claude); }
+.chip.ppt { background: rgba(255,107,43,0.08); border: 1px solid rgba(255,107,43,0.2); color: var(--claude-ink); }
 .chip.pdf { background: rgba(192,41,107,0.08); border: 1px solid rgba(192,41,107,0.2); color: var(--red); }
 .chip.txt { background: rgba(255,255,255,0.04);border: 1px solid var(--border2);        color: var(--muted); }
 .chip.dat { background: rgba(161,0,255,0.08);  border: 1px solid var(--acc-b);          color: var(--acc-l); }
@@ -1632,6 +1664,76 @@ input[type="file"] { display: none; }
 .tab-panel { display:none; }
 .tab-panel.on { display:block; }
 
+/* ── LOGS TAB ─────────────────────────────────────────────────────────────
+   Deliberately plain: this panel is read while something has gone wrong, so
+   density and legibility beat decoration. Colour is used only to mark status. */
+.log-btn {
+  background:transparent; border:1px solid var(--border3); color:var(--text2);
+  font-size:11px; font-weight:600; padding:5px 11px; border-radius:8px;
+  cursor:pointer; margin-left:6px; transition:all .15s; font-family:var(--sans);
+}
+.log-btn:hover { border-color:var(--acc-b); color:var(--acc-l); background:var(--acc-bg); }
+.log-btn-go { border-color:var(--acc-b); color:var(--acc-l); }
+.log-btn:disabled { opacity:.4; cursor:not-allowed; }
+
+.log-badge {
+  font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  padding:3px 9px; border-radius:20px; margin-left:10px; border:1px solid;
+  display:inline-block;
+}
+.log-idle        { color:var(--muted); border-color:var(--border3); }
+.log-running     { color:var(--teal); border-color:var(--teal-b); background:var(--teal-bg);
+                   animation:logPulse 1.6s ease-in-out infinite; }
+.log-ok          { color:var(--green); border-color:var(--green-b); background:var(--green-bg); }
+.log-partial     { color:var(--gold); border-color:var(--gold-b); background:var(--gold-bg); }
+.log-failed      { color:var(--red); border-color:var(--red-b); background:var(--red-bg); }
+.log-interrupted { color:var(--purple); border-color:var(--purple-b); background:var(--purple-bg); }
+@keyframes logPulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+
+.log-empty { color:var(--muted); font-size:13px; padding:26px 4px; text-align:center; }
+.log-retention {
+  font-size:11px; color:var(--muted2); margin:-2px 0 12px 2px; font-style:italic;
+}
+
+.log-kv { display:flex; flex-wrap:wrap; gap:8px 26px; margin:10px 0 14px; }
+.log-kv div { font-size:12px; color:var(--muted); }
+.log-kv b { color:var(--text); font-weight:600; }
+
+.log-stats { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+.log-stat {
+  border:1px solid var(--border2); border-radius:10px; padding:8px 14px;
+  min-width:104px; background:var(--surface2);
+}
+.log-stat .n { font-size:17px; font-weight:700; color:var(--text); line-height:1.2;
+               font-variant-numeric:tabular-nums; }
+.log-stat .l { font-size:10px; color:var(--muted2); text-transform:uppercase; letter-spacing:.05em; }
+
+.log-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+.log-table th {
+  text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--muted2); font-weight:700; padding:6px 8px; border-bottom:1px solid var(--border3);
+}
+.log-table td { padding:7px 8px; border-bottom:1px solid var(--border2); color:var(--text2); }
+.log-table tr:hover td { background:var(--surface3); }
+.log-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+.log-row-click { cursor:pointer; }
+
+.log-fail {
+  border:1px solid var(--red-b); background:var(--red-bg); border-radius:10px;
+  padding:12px 14px; margin:10px 0; font-size:12px; color:var(--text2);
+}
+.log-fail .h { font-weight:700; color:var(--red); margin-bottom:5px; }
+.log-fail pre {
+  white-space:pre-wrap; word-break:break-word; font-size:11px; margin:8px 0 0;
+  max-height:200px; overflow:auto; color:var(--text2); font-family:var(--mono);
+  background:var(--surface); padding:8px; border-radius:6px;
+  border:1px solid var(--border2);
+}
+.log-sub { font-size:11px; color:var(--muted2); margin:16px 0 4px; font-weight:700;
+           text-transform:uppercase; letter-spacing:.05em; }
+/* Wide tables must scroll inside the card, never widen the page. */
+#panelLogs .log-table { display:block; overflow-x:auto; white-space:nowrap; }
+
 .ask-wrap   { display:flex; flex-direction:column; gap:14px; }
 .ask-input-row { display:flex; gap:10px; align-items:flex-end; }
 .ask-textarea {
@@ -1690,9 +1792,9 @@ input[type="file"] { display: none; }
   display: inline-block;
 }
 .lib-fmt-xlsx { background:rgba(47,143,91,.08);  color:var(--green);  border:1px solid var(--green-b); }
-.lib-fmt-docx { background:rgba(77,159,255,.08); color:var(--blue);   border:1px solid rgba(77,159,255,.2); }
+.lib-fmt-docx { background:rgba(77,159,255,.08); color:var(--blue-ink);   border:1px solid rgba(77,159,255,.2); }
 .lib-fmt-pdf  { background:rgba(192,41,107,.08); color:var(--red);    border:1px solid var(--red-b); }
-.lib-fmt-pptx { background:rgba(255,107,43,.08); color:var(--claude); border:1px solid var(--claude-b); }
+.lib-fmt-pptx { background:rgba(255,107,43,.08); color:var(--claude-ink); border:1px solid var(--claude-b); }
 .lib-fmt-xml  { background:var(--purple-bg);     color:var(--purple); border:1px solid var(--purple-b); }
 .lib-dl-btn {
   background: none; border: 1px solid var(--border2);
@@ -1886,6 +1988,80 @@ input[type="file"] { display: none; }
 }
 .grnd-tooltip strong { font-weight:700; font-size:12.5px; }
 .grnd-tooltip.visible { opacity:1; }
+
+/* ═══ LIVE STAGE PROGRESS ═══════════════════════════════════════════════
+   A single document takes 25-50 minutes. Everything below exists to make that
+   wait legible: what is happening, what is done, what is left. Purely a view
+   over SSE events the backend already emits — it starts nothing and blocks
+   nothing. */
+.pz-live{
+  margin-top:14px; padding:16px 18px;
+  background:linear-gradient(180deg,rgba(30,41,59,.55),rgba(15,23,42,.35));
+  border:1px solid #27354a; border-radius:12px;
+}
+.pz-live-head{ display:flex; align-items:center; gap:10px; margin-bottom:11px; }
+.pz-live-spin{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:15px; color:var(--acc-l); width:15px; flex:0 0 15px; line-height:1;
+}
+.pz-live-title{ font-size:13.5px; font-weight:600; color:var(--text); flex:1; }
+.pz-live-pct{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:16px; font-weight:700; color:var(--acc-l);
+  font-variant-numeric:tabular-nums;
+}
+.pz-live-barbg{
+  height:8px; background:#1a2537; border-radius:99px; overflow:hidden;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.35);
+}
+.pz-live-bar{
+  height:100%; border-radius:99px; width:0%;
+  background:linear-gradient(90deg,#3b82f6,#22d3ee);
+  transition:width .6s cubic-bezier(.4,0,.2,1);
+  position:relative; overflow:hidden;
+}
+/* Movement while a stage is mid-flight, so the bar never looks frozen even when
+   it is legitimately not advancing. */
+.pz-live-bar::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);
+  animation:pzShimmer 1.9s linear infinite;
+}
+.pz-live.pz-done .pz-live-bar::after{ animation:none; }
+@keyframes pzShimmer{ from{transform:translateX(-100%)} to{transform:translateX(200%)} }
+
+.pz-live-sub{
+  display:flex; justify-content:space-between; gap:12px;
+  margin-top:8px; font-size:11.5px; color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.pz-live-sub b{ color:var(--muted2); font-weight:500; }
+
+.pz-stages{ list-style:none; margin:13px 0 0; padding:0; }
+.pz-stage{
+  display:flex; align-items:center; gap:9px;
+  padding:4px 0; font-size:12px; color:var(--muted2);
+  border-top:1px solid rgba(39,53,74,.5);
+}
+.pz-stage:first-child{ border-top:none; }
+.pz-stage-ico{
+  width:14px; flex:0 0 14px; text-align:center;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+}
+.pz-stage-name{ flex:1; }
+.pz-stage-meta{ font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.pz-stage.is-active{ color:var(--text); font-weight:600; }
+.pz-stage.is-active .pz-stage-ico{ color:var(--acc-l); }
+.pz-stage.is-done .pz-stage-ico{ color:#22c55e; }
+.pz-stage.is-skip{ opacity:.45; }
+.pz-stage.is-fail .pz-stage-ico{ color:#ef4444; }
+.pz-stage.is-pending{ opacity:.5; }
+
+/* Respect users who have asked the OS for less motion. */
+@media (prefers-reduced-motion:reduce){
+  .pz-live-bar::after{ animation:none; }
+  .pz-live-bar{ transition:none; }
+}
 </style>
 </head>
 <body>
@@ -1905,12 +2081,15 @@ input[type="file"] { display: none; }
       <div class="topbar-product">
         <div class="topbar-product-icon">✦</div>
         <span class="topbar-product-name">Governance Portal</span>
+        <!-- Which document family this session is scoped to. Both launcher tiles
+             open this same page, so without it a user cannot tell them apart. -->
+        <span id="portalBanner" class="log-badge log-idle" style="margin-left:8px"></span>
       </div>
     </div>
 
     <div class="topbar-right">
       <div class="server-row-top">
-        <input type="text" class="server-inp" id="serverUrl" value="http://localhost:8000" />
+        <input type="text" class="server-inp" id="serverUrl" value="http://localhost:8001" />
         <button class="topbar-btn" onclick="pingServer()">Ping</button>
         <div class="sdot" id="sdot"></div>
         <span class="slabel" id="slabel">—</span>
@@ -1943,9 +2122,10 @@ input[type="file"] { display: none; }
 
     <!-- MAIN TAB SWITCHER -->
     <div class="main-tabs">
-      <button class="main-tab"   id="tabCascade"  onclick="switchMainTab('cascade')">⚡ Cascade Generate</button>
       <button class="main-tab on" id="tabGenerate" onclick="switchMainTab('generate')">✦ Adhoc Generate</button>
+      <button class="main-tab"   id="tabCascade"  onclick="switchMainTab('cascade')">⚡ Cascade Generate</button>
       <button class="main-tab"   id="tabAsk"      onclick="switchMainTab('ask')">🔍 Ask Library</button>
+      <button class="main-tab"   id="tabLogs"     onclick="switchMainTab('logs')">📋 Logs</button>
     </div>
 
     <!-- TAB: GENERATE (existing content wrapped) -->
@@ -1958,19 +2138,10 @@ input[type="file"] { display: none; }
         <span class="label-txt">Template</span>
         <span class="badge badge-req">Required</span>
       </div>
+      <!-- Populated by renderTemplateOptions() from PORTAL_TEMPLATES, filtered by
+           the ?portal= parameter the launcher tile passes. -->
       <select id="outputType" onchange="onOutputTypeChange()">
         <option value="">— Select Template —</option>
-        <option>Project Plan</option><option>Communication Plan</option><option>Governance Matrix</option>
-        <option>Weekly Status Report</option><option>Steering Committee Status Report</option>
-        <option>Risk/Issue Log</option><option>Onboarding PPT</option><option>Milestone Signoff Format</option>
-        <option>RTM</option><option>To-Be Process</option><option>Fit-Gap</option>
-        <option>Solution Design</option><option>Interface List</option><option>Integration Strategy</option>
-        <option>Data Migration Strategy</option><option>Functional Spec Document</option>
-        <option>Data model (XML) → Workbook</option><option>Workbook → Data model (XML)</option><option>Data model CSF (XML) → Workbook</option><option>Workbook → Data model CSF (XML)</option><option>Config Specs</option><option>Integration TD</option>
-        <option>Unit Test Case</option><option>Test Strategy</option><option>Test Cases</option>
-        <option>Defect Log</option><option>Integration Test Case</option><option>UAT Test Case</option>
-        <option>Cutover Plan</option><option>Go-Live Checklist</option><option>Hypercare Tracker</option>
-        <option>Train the Trainer Plan</option><option>KT Plan</option>
       </select>
       <div class="saved-indicator" id="savedIndicator">
         <div class="saved-dot"></div>
@@ -1978,28 +2149,14 @@ input[type="file"] { display: none; }
       </div>
     </div>
 
-    <!-- 03 USER PROMPT -->
-    <div class="card user-card" id="userPromptCard" style="display:none">
-      <div class="card-label">
-        <span class="step-n" id="sn-up">03</span>
-        <span class="label-txt">User Prompt / Personalization</span>
-        <span class="badge badge-opt">Optional</span>
-      </div>
-      <textarea id="userPrompt" placeholder="Add your personal instructions or customizations...
-
-Examples:
-• Focus on the marketing team's Q3 budget
-• Add a risk rating column
-• Use company name 'Accenture' throughout
-• Highlight items due before June 2025"></textarea>
-    </div>
-
-    <!-- 04 INPUT FILE -->
+    <!-- 02 INPUT FILE — the mandatory step. Sits directly after Template because it is
+         the one thing generation cannot proceed without; Reference File and User Prompt
+         are both refinements and follow it. -->
     <div class="card" id="inputFileCard" style="display:none">
       <div class="card-label">
-        <span class="step-n" id="sn-if">04</span>
+        <span class="step-n" id="sn-if">02</span>
         <span class="label-txt">Input File — Content &amp; Data</span>
-        <span class="badge badge-opt">Optional</span>
+        <span class="badge badge-req">Required</span>
       </div>
       <div class="drop-zone" id="dz-input"
            onclick="document.getElementById('fi-input').click()"
@@ -2014,23 +2171,26 @@ Examples:
           <span class="chip dat">xml</span>
         </div>
       </div>
-      <input type="file" id="fi-input" accept=".xlsx,.xls,.csv,.txt,.md,.json,.docx,.doc,.pdf,.pptx,.ppt,.xml" onchange="handleFile(this.files[0],'input')" />
-      <div class="file-chip green" id="chip-input">
-        <span class="fc-ico" id="chipico-input">📄</span>
-        <div class="fc-info"><div class="fc-name" id="chipname-input">—</div><div class="fc-meta" id="chipmeta-input">—</div></div>
-        <button class="fc-rm" onclick="removeFile(event,'input')">✕</button>
-      </div>
+      <!-- multiple: one engagement's scope arrives across a SOW, a workbook, a deck
+           and a process map. .vsdx extracts cleanly (swimlanes + connector graph);
+           .mpp is string-mined and warned about after selection. -->
+      <input type="file" id="fi-input" multiple
+             accept=".xlsx,.xls,.csv,.txt,.md,.json,.docx,.doc,.pdf,.pptx,.ppt,.xml,.vsdx,.mpp"
+             onchange="handleFile(this.files,'input')" />
+      <div id="chips-input"></div>
     </div>
 
-    <!-- 05 REFERENCE FILE — Style &amp; Structure -->
+    <!-- 03 REFERENCE FILE — Style &amp; Structure -->
     <!-- User Reference toggle + upload (user only) -->
     <div class="card user-card" id="userRefCard" style="display:none">
       <div class="card-label">
         <span class="step-n" id="sn-rf-user">03</span>
         <span class="label-txt">Reference File — Style &amp; Structure</span>
-        <span class="badge badge-opt">Optional</span>
+        <span class="badge badge-opt" id="refBadge">Optional</span>
       </div>
-      <!-- Toggle switch -->
+      <!-- Toggle switch. Hidden when the template has no configured reference: there
+           is nothing to "use instead of", and hiding the only route to enabling
+           generation behind an override switch is what left users stuck. -->
       <label class="toggle-row" id="userRefToggleRow" for="userRefToggle">
         <div class="toggle-switch">
           <input type="checkbox" id="userRefToggle" onchange="onUserRefToggle()" />
@@ -2042,9 +2202,9 @@ Examples:
           <div class="toggle-label-sub">Override the system reference with your own file for style &amp; structure guidance</div>
         </div>
       </label>
-      <!-- User ref upload zone (shown when toggle ON) -->
+      <!-- User ref upload zone (shown when toggle ON, or always when required) -->
       <div class="user-ref-zone" id="userRefZone">
-        <div class="ref-info" style="margin-top:10px">
+        <div class="ref-info" style="margin-top:10px" id="refPriorityNote">
           <span style="font-size:14px;flex-shrink:0">👤</span>
           <span><strong>Your reference file takes priority.</strong> When uploaded, Claude will mirror <em>your</em> file's style — the system reference is ignored.</span>
         </div>
@@ -2057,10 +2217,14 @@ Examples:
           <div class="type-chips">
             <span class="chip doc">docx</span><span class="chip xl">xlsx</span><span class="chip xl">csv</span>
             <span class="chip ppt">pptx</span><span class="chip pdf">pdf</span>
-            <span class="chip txt">txt</span><span class="chip txt">md</span><span class="chip dat">json</span>
+            <span class="chip dat">xml</span>
           </div>
         </div>
-        <input type="file" id="fi-user-ref" accept=".xlsx,.xls,.csv,.txt,.md,.json,.docx,.doc,.pdf,.pptx,.ppt,.xml" onchange="handleFileSlot(this.files[0],'user-ref')" />
+        <!-- Reference types are limited to formats we can BOTH read as a structure
+             and produce as output. A .txt or .csv reference has no output format to
+             lock to, and a legacy .ppt/.doc/.xls cannot be opened by python-pptx /
+             python-docx / openpyxl at all. See REF_EXTS. -->
+        <input type="file" id="fi-user-ref" accept=".xlsx,.docx,.pptx,.pdf,.xml" onchange="handleFileSlot(this.files[0],'user-ref')" />
         <div class="file-chip purple" id="chip-user-ref">
           <span class="fc-ico" id="chipico-user-ref">📄</span>
           <div class="fc-info"><div class="fc-name" id="chipname-user-ref">—</div><div class="fc-meta" id="chipmeta-user-ref">—</div></div>
@@ -2074,6 +2238,39 @@ Examples:
           <label class="mirror-item"><input type="checkbox" id="mir-patterns"  checked> Patterns</label>
           <label class="mirror-item"><input type="checkbox" id="mir-format"    checked> Formatting</label>
         </div>
+      </div>
+    </div>
+
+    <!-- 04 USER PROMPT / PERSONALIZATION -->
+    <!-- Collapsed behind a default-off toggle, deliberately mirroring userRefCard above:
+         both are optional refinements, so the default path is Template -> Input File ->
+         Generate, and neither optional step presents an empty box demanding attention.
+         Reuses .toggle-row / .user-ref-zone so there is one toggle idiom on this page. -->
+    <div class="card user-card" id="userPromptCard" style="display:none">
+      <div class="card-label">
+        <span class="step-n" id="sn-up">04</span>
+        <span class="label-txt">User Prompt / Personalization</span>
+        <span class="badge badge-opt">Optional</span>
+      </div>
+      <label class="toggle-row" id="userPromptToggleRow" for="userPromptToggle">
+        <div class="toggle-switch">
+          <input type="checkbox" id="userPromptToggle" onchange="onUserPromptToggle()" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </div>
+        <div class="toggle-label-wrap">
+          <div class="toggle-label-main">Add my own instructions</div>
+          <div class="toggle-label-sub">Steer the output with specific asks — scope, extra columns, naming, emphasis</div>
+        </div>
+      </label>
+      <div class="user-ref-zone" id="userPromptZone">
+        <textarea id="userPrompt" placeholder="Add your personal instructions or customizations...
+
+Examples:
+• Focus on the marketing team's Q3 budget
+• Add a risk rating column
+• Use company name 'Accenture' throughout
+• Highlight items due before June 2025"></textarea>
       </div>
     </div>
 
@@ -2122,7 +2319,7 @@ Examples:
     <!-- 06 OUTPUT FILENAME -->
     <div class="card" id="outputFilenameCard" style="display:none">
       <div class="card-label">
-        <span class="step-n" id="sn-fn">06</span>
+        <span class="step-n" id="sn-fn">05</span>
         <span class="label-txt">Output Filename</span>
       </div>
       <input type="text" id="fileName" value="my-document" placeholder="Output filename (no extension)" />
@@ -2131,7 +2328,7 @@ Examples:
     <!-- 07 OUTPUT FORMAT -->
     <div class="card" id="outputFormatCard" style="display:none">
       <div class="card-label">
-        <span class="step-n" id="sn-fmt">07</span>
+        <span class="step-n" id="sn-fmt">06</span>
         <span class="label-txt">Output Format</span>
       </div>
       <div class="fmt-grid">
@@ -2273,15 +2470,16 @@ Examples:
                ondrop="cascHandleDrop(event)">
             <div class="drop-icon">📄</div>
             <div class="drop-label">Drop SOW, Project Plan, or any input document</div>
-            <div class="drop-sub">DOCX · PDF · XLSX · TXT  —  max 10 MB</div>
+            <div class="drop-sub">DOCX · PDF · XLSX · PPTX · MPP · TXT  —  max 10 MB</div>
             <div class="drop-chosen" id="cascFileChosen"></div>
           </div>
-          <input type="file" id="cascFileInput" accept=".docx,.doc,.pdf,.xlsx,.xls,.txt,.csv,.md"
+          <input type="file" id="cascFileInput" accept=".docx,.doc,.pdf,.xlsx,.xls,.txt,.csv,.md,.pptx,.ppt,.mpp"
                  onchange="cascOnFileSelect(this)">
           <div style="margin-top:8px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
             <span style="color:#B9822B">★</span>
             <span>Best results with <strong style="color:var(--text2)">DOCX</strong> or <strong style="color:var(--text2)">TXT</strong>.
-            For PDF: ensure the file is <strong style="color:var(--text2)">text-based</strong> (not a scanned image).</span>
+            For PDF: ensure the file is <strong style="color:var(--text2)">text-based</strong> (not a scanned image).
+            For MPP: task/resource names and notes are extracted — dates, dependencies, and hierarchy are not.</span>
           </div>
         </div>
 
@@ -2400,6 +2598,26 @@ Examples:
           </div>
         </div>
 
+        <!-- ─── LIVE STAGE PROGRESS ───────────────────────────────────
+             Weighted by measured stage durations, not equal steps. The bar
+             above tracks DOCUMENTS across a cascade; this one tracks the
+             stages inside the document being generated right now. -->
+        <div class="pz-live" id="pzLive" style="display:none">
+          <div class="pz-live-head">
+            <span class="pz-live-spin" id="pzSpin">&#10283;</span>
+            <span class="pz-live-title" id="pzTitle">Starting&hellip;</span>
+            <span class="pz-live-pct" id="pzPct">0%</span>
+          </div>
+          <div class="pz-live-barbg">
+            <div class="pz-live-bar" id="pzBar" style="width:0%"></div>
+          </div>
+          <div class="pz-live-sub">
+            <span id="pzSub"></span>
+            <span id="pzTimes"></span>
+          </div>
+          <ol class="pz-stages" id="pzStages"></ol>
+        </div>
+
         <!-- Graph canvas + preview side by side -->
         <div style="display:grid;grid-template-columns:1fr 340px;gap:12px;margin-top:14px">
 
@@ -2463,6 +2681,69 @@ Examples:
       </div>
 
     </div><!-- /panelCascade -->
+
+    <!-- ═══════════════════════════════════════════════════════════
+         TAB: LOGS — Current Run first, then Run History
+         Read-only over /logs/*. Exporting works on a RUNNING run as well as a
+         finished one, so a user can send the trace while a generation is still
+         going and show exactly where it is stuck.
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="panelLogs">
+
+      <!-- ── Current Run ────────────────────────────────────────── -->
+      <div class="card user-card" style="margin-bottom:10px">
+        <div class="card-label">
+          <span class="step-n" style="background:var(--acc-bg);border-color:var(--acc-b);color:var(--acc-l)">01</span>
+          <span class="label-txt" style="color:var(--acc-l)">Current Run</span>
+          <span id="logLiveBadge" class="log-badge log-idle">idle</span>
+          <span style="flex:1"></span>
+          <button class="log-btn" onclick="logRefresh()">↻ Refresh</button>
+          <button class="log-btn log-btn-go" onclick="logExportCurrent()">⬇ Export current log</button>
+        </div>
+        <div id="logCurrentBody">
+          <div class="log-empty">No runs yet. Generate a document and its trace appears here.</div>
+        </div>
+      </div>
+
+      <!-- ── Run History ────────────────────────────────────────── -->
+      <div class="card output-card">
+        <div class="card-label">
+          <span class="step-n" style="background:var(--teal-bg,rgba(14,124,134,.12));border-color:var(--teal-b);color:var(--teal,#0e7c86)">02</span>
+          <span class="label-txt" style="color:var(--teal,#0e7c86)">Run History</span>
+          <span style="flex:1"></span>
+          <!-- Adhoc and cascade traces mixed in one list were hard to read, so the
+               kind is chosen rather than merged. Starts unselected; a run in progress
+               selects its own kind so a live trace is never hidden behind a picker. -->
+          <select id="logKindSelect" onchange="logKindChanged()"
+                  style="width:auto;min-width:170px;margin:0 10px 0 0;padding:6px 10px;font-size:12px">
+            <option value="">— Select log type —</option>
+            <option value="adhoc">✦ Adhoc runs</option>
+            <option value="cascade">⚡ Cascade runs</option>
+          </select>
+          <button class="log-btn" onclick="logSelectAll()">Select all</button>
+          <button class="log-btn log-btn-go" onclick="logExportSelected()">⬇ Export selected</button>
+        </div>
+        <div class="log-retention" id="logRetention">
+          Logs are kept for 30 days or the last 50 runs, whichever comes first.
+        </div>
+        <div id="logHistoryBody">
+          <div class="log-empty">Choose a log type above to see runs.</div>
+        </div>
+      </div>
+
+      <!-- ── Detail drawer ──────────────────────────────────────── -->
+      <div class="card" id="logDetailCard" style="display:none">
+        <div class="card-label">
+          <span class="step-n">03</span>
+          <span class="label-txt" id="logDetailTitle">Run detail</span>
+          <span style="flex:1"></span>
+          <button class="log-btn log-btn-go" onclick="logExportOne(window.__pzLogDetailId)">⬇ Export this run</button>
+          <button class="log-btn" onclick="document.getElementById('logDetailCard').style.display='none'">✕ Close</button>
+        </div>
+        <div id="logDetailBody"></div>
+      </div>
+
+    </div><!-- /panelLogs -->
 
     <!-- Progress -->
     <div class="prog-card" id="progCard">
@@ -2529,27 +2810,27 @@ function initUserMode(){
   document.getElementById('heroKicker').textContent = '👤 No-Login Access — ProjectZen';
   document.getElementById('heroSub'   ).textContent = 'Select a Template, personalize your generation, and let Claude create your document.';
 
-  document.getElementById('userPromptCard'    ).style.display = 'block';
-  document.getElementById('inputFileCard'     ).style.display = 'block';
-  document.getElementById('userRefCard'       ).style.display = 'block';
-  document.getElementById('outputFilenameCard').style.display = 'block';
-  document.getElementById('outputFormatCard'  ).style.display = 'block';
-  document.getElementById('genBtn'            ).style.display = 'flex';
-  const genBtnRow = document.querySelector('.gen-btn-row');
-  if(genBtnRow) genBtnRow.style.display = 'flex';
+  // Every step below Template stays hidden until a Template is chosen — see
+  // _adhocRevealSteps(), called from onOutputTypeChange(). This used to reveal all six
+  // cards on load, which presented the whole form before the one choice that determines
+  // what the rest of it should say.
+  _adhocRevealSteps(false);
 
-  const upEl  = document.getElementById('sn-up');  if(upEl)  upEl.textContent  = '02';
-  const ifEl  = document.getElementById('sn-if');  if(ifEl)  ifEl.textContent  = '03';
-  const rfEl  = document.getElementById('sn-rf-user'); if(rfEl) rfEl.textContent = '03';
-  const fnEl  = document.getElementById('sn-fn');  if(fnEl)  fnEl.textContent  = '04';
-  const fmtEl = document.getElementById('sn-fmt'); if(fmtEl) fmtEl.textContent = '05';
+  // Step numbers are set here rather than in the markup because this is the only place
+  // that knows the user-mode running order. The previous numbering read 01,03,04,03,06,07
+  // — no 02, no 05, and 03 twice.
+  const ifEl  = document.getElementById('sn-if');      if(ifEl)  ifEl.textContent  = '02';
+  const rfEl  = document.getElementById('sn-rf-user'); if(rfEl)  rfEl.textContent  = '03';
+  const upEl  = document.getElementById('sn-up');      if(upEl)  upEl.textContent  = '04';
+  const fnEl  = document.getElementById('sn-fn');      if(fnEl)  fnEl.textContent  = '05';
+  const fmtEl = document.getElementById('sn-fmt');     if(fmtEl) fmtEl.textContent = '06';
 
   document.getElementById('outputType').value='';
   document.getElementById('savedIndicator').className='saved-indicator';
   const tog=document.getElementById('userRefToggle');
   if(tog){ tog.checked=false; onUserRefToggle(); }
   resetFileSlot('user-ref');
-  inputFile=null; refFile=null;
+  inputFile=null; inputFiles=[]; refFile=null;
   window._pulledSystemPrompt='';
   window._pulledAdminRefData=null;
 
@@ -2557,23 +2838,84 @@ function initUserMode(){
   setTimeout(loadLibrary, 800);
   cascInit();
 }
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TEMPLATE GROUNDING SUMMARY — the line under the Template dropdown
+   ═══════════════════════════════════════════════════════════════════════════════
+   Reports what this template will actually generate with: an admin System Prompt,
+   a grounded Reference File, or neither.
+
+   Server-truth, not localStorage. Grounding lives in the adhoc_template_config table
+   and is served by GET /admin/adhoc-config/{template}; the previous implementation
+   read getConfigs() from localStorage, so it only ever lit up in the same browser
+   that had done the upload. Every other user saw "nothing configured" for templates
+   that were fully grounded — e.g. Test Strategy and Integration Strategy, both of
+   which carry a reference deck server-side.
+
+   PRESENCE ONLY. This card is reachable by non-admins and the system prompt is an
+   admin artefact, so the summary states only THAT grounding exists — never its content,
+   filename or size. */
+const _tmplInfoCache = {};
+
+async function updateTemplateInfo(templateName){
+  const si  = document.getElementById('savedIndicator');
+  const txt = document.getElementById('savedIndicatorText');
+  if(!si || !txt) return;
+  if(!templateName){ si.className='saved-indicator'; return; }
+
+  let cfg = _tmplInfoCache[templateName];
+  if(cfg === undefined){
+    try{
+      cfg = await fetch(srv()+'/admin/adhoc-config/'+encodeURIComponent(templateName))
+                  .then(r=>r.ok?r.json():null);
+    }catch(_){ cfg = null; }          // server down — fall through to the local copy
+    _tmplInfoCache[templateName] = cfg;
+  }
+
+  // The user may have changed template while the fetch was in flight; a late response
+  // must not overwrite the summary for whatever is selected now.
+  const sel = document.getElementById('outputType');
+  if(!sel || sel.value !== templateName) return;
+
+  const local    = (getConfigs()||{})[templateName] || {};
+  const grounded = !!(cfg && cfg.configured);
+  const hasPrompt = !!(grounded ? String(cfg.system_prompt||'').trim()
+                                : String(local.prompt||'').trim());
+  const hasRef    = !!(grounded ? (cfg.file_name||'') : (local.refName||''));
+
+  // PRESENCE ONLY — no filename, no size, no character count. This line answers one
+  // question ("will this template generate with grounding?"); the filename and byte
+  // count are administrative detail that belong on the admin page, where they are
+  // already shown. Nothing user-supplied is interpolated here any more, which is why
+  // there is no escaping in this block.
+  const parts=[];
+  if(hasPrompt) parts.push('<span class="si-what">System Prompt</span> loaded');
+  if(hasRef)    parts.push('<span class="si-what">Reference File</span> loaded');
+
+  if(parts.length){
+    txt.innerHTML   = parts.join('&nbsp; · &nbsp;');
+    si.className    = 'saved-indicator show';
+  } else {
+    txt.innerHTML   = 'No system prompt or reference file is grounded for this Template — '
+                    + 'output will follow Claude&rsquo;s own structure rather than a house style.';
+    si.className    = 'saved-indicator show none';
+  }
+}
+
 function onOutputTypeChange(){
   const ot       = document.getElementById('outputType').value;
+  // Steps 02-06 exist only once a Template is chosen, and collapse again if it is
+  // cleared back to the placeholder.
+  _adhocRevealSteps(!!ot);
+  if (ot) warnIfUngrounded(ot);      // non-blocking; see warnIfUngrounded()
   const configs  = getConfigs();                   // { [ot]: { prompt, refData, refName, refExt, refMime } }
   const cfg      = configs[ot] || {};
   const isAdmin  = session && session.role==='admin';
   const si       = document.getElementById('savedIndicator');
 
-  // ── FIX: hasRef checks BOTH cfg.refId (backend) and cfg.refData (legacy localStorage) ──
-  const hasRef   = !!(cfg.refId || cfg.refData);
-  const hasSaved = !!(cfg.prompt || hasRef);
-  if(ot && hasSaved){
-    const parts=[];
-    if(cfg.prompt) parts.push('System Prompt');
-    if(hasRef)     parts.push('Reference File');
-    document.getElementById('savedIndicatorText').textContent=`✓ Saved for Template "${ot}": ${parts.join(' + ')}`;
-    si.className='saved-indicator show';
-  } else { si.className='saved-indicator'; }
+  // What is grounded for this template, read from the SERVER. See updateTemplateInfo():
+  // the version here previously read localStorage only, so it reported "nothing saved"
+  // on any browser that had not itself performed the admin upload.
+  updateTemplateInfo(ot);
 
   if(isAdmin){
     // Load saved system prompt
@@ -2660,7 +3002,9 @@ function onOutputTypeChange(){
     // Auto-select format based on template
     const xmlTemplates = ['Workbook → Data model (XML)', 'Data model (XML) → Workbook'];
     const xlsxTemplates = ['Data model (XML) → Workbook'];
-    const xmlOutputTemplates  = ['Workbook → Data model (XML)', 'Workbook → Data model CSF (XML)'];
+    // 'Data Model' is the Data Model Agent portal's only template and always emits
+    // XML (or a zip of XML files when the workbook feeds several models).
+    const xmlOutputTemplates  = ['Workbook → Data model (XML)', 'Workbook → Data model CSF (XML)', 'Data Model'];
     const xlsxOutputTemplates = ['Data model (XML) → Workbook', 'Data model CSF (XML) → Workbook'];
     if(xmlOutputTemplates.includes(ot)){
       // Force XML output format
@@ -2678,7 +3022,7 @@ function onOutputTypeChange(){
   }
 }
 
-let inputFile=null, refFile=null, lastResult=null, fmt='xlsx';
+let inputFile=null, inputFiles=[], refFile=null, lastResult=null, fmt='xlsx';
 let _grndStatus = [];   // cascade doc-grid grounding status
 // Per-slot encoded files
 window._currentAdminRefEncoded  = null;
@@ -2693,7 +3037,7 @@ const MIME_MAP={pdf:'application/pdf',docx:'application/vnd.openxmlformats-offic
 function selFmt(btn){ document.querySelectorAll('.fmt-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); fmt=btn.dataset.fmt; }
 function onDragOver(e,id){ e.preventDefault(); document.getElementById(id).classList.add('drag'); }
 function onDragLeave(id){ document.getElementById(id).classList.remove('drag'); }
-function onDrop(e,slot){ e.preventDefault(); document.getElementById(slot==='input'?'dz-input':'dz-ref').classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],slot); }
+function onDrop(e,slot){ e.preventDefault(); document.getElementById(slot==='input'?'dz-input':'dz-ref').classList.remove('drag'); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files,slot); }
 
 // Slot-based drag handlers for admin-ref and user-ref zones
 function onDropSlot(e,slot){
@@ -2709,6 +3053,28 @@ function onDropSlot(e,slot){
 function handleFileSlot(file, slot){
   if(!file) return Promise.resolve(null);
   const ext=file.name.split('.').pop().toLowerCase(), icon=FILE_ICONS[ext]||'📄', size=(file.size/1024).toFixed(1);
+
+  // Reference slots only. A reference decides the output format, so it has to be a
+  // type we can read AND emit — checked here as well as in `accept` because drag and
+  // drop bypasses the picker's filter entirely.
+  if(slot==='user-ref' || slot==='admin-ref'){
+    if(LEGACY_EXTS[ext]){
+      showToast(
+        `.${ext} files cannot be used as a reference — the format is too old to open `
+        + `reliably. Open "${file.name}" and save it as .${LEGACY_EXTS[ext]}, then `
+        + `attach that instead.`, 'error');
+      const fi = document.getElementById('fi-'+slot); if(fi) fi.value='';
+      return Promise.resolve(null);
+    }
+    if(!REF_EXTS.includes(ext)){
+      showToast(
+        `.${ext} cannot be used as a reference. The output format follows the `
+        + `reference file, so it must be one of: ${REF_EXTS.map(e=>'.'+e).join(', ')}.`,
+        'error');
+      const fi = document.getElementById('fi-'+slot); if(fi) fi.value='';
+      return Promise.resolve(null);
+    }
+  }
 
   // Update UI immediately
   document.getElementById('dz-'+slot).classList.add('filled');
@@ -2737,7 +3103,10 @@ function handleFileSlot(file, slot){
       document.getElementById('title-'+slot).textContent='File attached';
       document.getElementById('sub-'+slot).textContent='Click to change';
       if(slot==='admin-ref') window._currentAdminRefEncoded = encoded;
-      if(slot==='user-ref' ) window._currentUserRefEncoded  = encoded;
+      if(slot==='user-ref' ){
+        window._currentUserRefEncoded = encoded;
+        setUserRefExt(file.name);   // the user's file now governs the output format
+      }
       resolve(encoded);
     };
 
@@ -2766,7 +3135,21 @@ function removeFileSlot(e, slot){
   const fi=document.getElementById('fi-'+slot);
   if(fi) fi.value='';
   if(slot==='admin-ref') window._currentAdminRefEncoded=null;
-  if(slot==='user-ref' ) window._currentUserRefEncoded=null;
+  if(slot==='user-ref' ){
+    window._currentUserRefEncoded=null;
+    // Falls back to the template's admin reference, or locks generation if none.
+    //
+    // GATED ON window._refStateReady, and it must stay that way. resetFileSlot() runs
+    // during page initialisation, long before the reference-format block further down
+    // has executed — and setUserRefExt touches `const _refState` / `PORTAL_RULES`,
+    // which are in their temporal dead zone until then. Calling it early threw a
+    // ReferenceError that stopped the whole inline script, so PORTAL_TEMPLATES and
+    // renderTemplateOptions were never defined and the Template dropdown rendered
+    // empty. `typeof setUserRefExt === 'function'` does NOT protect against this:
+    // function declarations hoist, so the guard passed and the body still threw.
+    // A window flag is used because `typeof` on a TDZ const throws as well.
+    if(window._refStateReady && typeof setUserRefExt === 'function') setUserRefExt('');
+  }
 }
 
 function resetFileSlot(slot){ removeFileSlot(null, slot); }
@@ -2783,20 +3166,76 @@ function onUserRefToggle(){
   }
 }
 
+/* User Prompt toggle — same shape as onUserRefToggle above.
+   Switching OFF clears the textarea rather than merely hiding it. Leaving text behind
+   a collapsed toggle would silently ship instructions the user believes they turned
+   off, which is the worse failure of the two. */
+/* Show or hide every adhoc step below Template.
+   `on` is driven by whether a Template is selected. Admins are exempt: the admin view
+   uses these same cards to configure a template and must reach them regardless. */
+function _adhocRevealSteps(on){
+  const isAdmin = session && session.role==='admin';
+  const show = (on || isAdmin) ? 'block' : 'none';
+  ['inputFileCard','userRefCard','userPromptCard','outputFilenameCard','outputFormatCard']
+    .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display=show; });
+
+  const genBtn = document.getElementById('genBtn');
+  if(genBtn) genBtn.style.display = (on || isAdmin) ? 'flex' : 'none';
+  const genBtnRow = document.querySelector('.gen-btn-row');
+  if(genBtnRow) genBtnRow.style.display = (on || isAdmin) ? 'flex' : 'none';
+
+  // Collapsing the form also resets the two optional toggles, so re-selecting a
+  // template never reopens a panel the user had closed under a previous one.
+  if(!on && !isAdmin){
+    const rt=document.getElementById('userRefToggle');
+    const pt=document.getElementById('userPromptToggle');
+    if(rt && rt.checked){ rt.checked=false; onUserRefToggle(); }
+    if(pt && pt.checked){ pt.checked=false; onUserPromptToggle(); }
+  }
+}
+
+function onUserPromptToggle(){
+  const checked=document.getElementById('userPromptToggle').checked;
+  document.getElementById('userPromptToggleRow').className='toggle-row'+(checked?' active':'');
+  const zone=document.getElementById('userPromptZone');
+  zone.className='user-ref-zone'+(checked?' show':'');
+  if(checked){ document.getElementById('userPrompt').focus(); }
+  else       { document.getElementById('userPrompt').value=''; }
+}
+
+// Formats whose extraction is genuinely lossy. Kept in step with the server's
+// DEGRADED_FORMATS in input_merge.py. .vsdx is deliberately NOT here: measured on a
+// real customer process map it recovers swimlanes, shape roles and the full
+// connector graph, so warning about it would be telling the user their good input
+// is bad.
+const DEGRADED_INPUT = {
+  mpp: 'Microsoft Project files can only be read as loose text - task dates, ' +
+       'dependencies and the task hierarchy cannot be recovered. Exporting the plan ' +
+       'to Excel or XML from MS Project will give a noticeably better document.'
+};
+
 function handleFile(file,slot){
   if(!file) return;
-  const ext=file.name.split('.').pop().toLowerCase(), icon=FILE_ICONS[ext]||'📄', size=(file.size/1024).toFixed(1);
+  // The input slot merges new files into the existing list (append, not replace).
+  // Duplicate filenames replace the older version; all others are appended.
   if(slot==='input'){
-    inputFile=file;
-    document.getElementById('dz-input'      ).classList.add('filled');
-    document.getElementById('icon-input'    ).textContent=icon;
-    document.getElementById('title-input'   ).textContent='File attached successfully';
-    document.getElementById('sub-input'     ).textContent='Click to change file';
-    document.getElementById('chipico-input' ).textContent=icon;
-    document.getElementById('chipname-input').textContent=file.name;
-    document.getElementById('chipmeta-input').textContent=`${size} KB · ${ext.toUpperCase()} · content & data`;
-    document.getElementById('chip-input'    ).classList.add('show');
-  } else {
+    const incoming = (file instanceof FileList || Array.isArray(file))
+                     ? Array.from(file)
+                     : (file instanceof File ? [file] : []);
+    if(!incoming.length) return;
+    const byName = new Map(inputFiles.map(f=>[f.name,f]));
+    incoming.forEach(f=>byName.set(f.name,f));   // replace duplicate, append new
+    inputFiles = Array.from(byName.values());
+    inputFile  = inputFiles[0];
+    _renderInputChips();
+    // Warn about lossy formats at selection time, not after a long generation run.
+    incoming.filter(f=>DEGRADED_INPUT[f.name.split('.').pop().toLowerCase()])
+            .forEach(f=>showToast(
+              `${f.name}: ${DEGRADED_INPUT[f.name.split('.').pop().toLowerCase()]}`, 'error'));
+    return;
+  }
+  const ext=file.name.split('.').pop().toLowerCase(), icon=FILE_ICONS[ext]||'📄', size=(file.size/1024).toFixed(1);
+  {
     refFile=file;
     document.getElementById('dz-ref'      ).classList.add('filled');
     document.getElementById('icon-ref'    ).textContent=icon;
@@ -2813,12 +3252,12 @@ function handleFile(file,slot){
 function removeFile(e,slot){
   e.stopPropagation();
   if(slot==='input'){
-    inputFile=null; document.getElementById('fi-input').value='';
+    inputFile=null; inputFiles=[]; document.getElementById('fi-input').value='';
+    document.getElementById('chips-input').innerHTML='';
     document.getElementById('dz-input'   ).classList.remove('filled');
     document.getElementById('icon-input' ).textContent='📂';
     document.getElementById('title-input').textContent='Drop your file here or click to browse';
     document.getElementById('sub-input'  ).textContent='Claude reads this as source content and data for generation';
-    document.getElementById('chip-input' ).classList.remove('show');
   } else {
     refFile=null; document.getElementById('fi-ref').value='';
     document.getElementById('dz-ref'    ).classList.remove('filled');
@@ -2831,6 +3270,50 @@ function removeFile(e,slot){
 }
 
 function toBase64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); }); }
+
+// ── Per-file chip rendering for the input slot ─────────────────────────────
+// Renders one removable chip per file in inputFiles and syncs the dropzone
+// header. Called after every add or remove so the UI always reflects the list.
+function _renderInputChips(){
+  const container=document.getElementById('chips-input');
+  if(!container) return;
+  if(!inputFiles.length){
+    container.innerHTML='';
+    document.getElementById('dz-input'   ).classList.remove('filled');
+    document.getElementById('icon-input' ).textContent='📂';
+    document.getElementById('title-input').textContent='Drop your file here or click to browse';
+    document.getElementById('sub-input'  ).textContent='Claude reads this as source content and data for generation';
+    return;
+  }
+  const lead=inputFiles[0];
+  const leadExt=lead.name.split('.').pop().toLowerCase();
+  document.getElementById('dz-input'   ).classList.add('filled');
+  document.getElementById('icon-input' ).textContent=FILE_ICONS[leadExt]||'📄';
+  document.getElementById('title-input').textContent=
+    inputFiles.length===1?'File attached successfully':`${inputFiles.length} files attached`;
+  document.getElementById('sub-input'  ).textContent='Click to add more files';
+  container.innerHTML=inputFiles.map(f=>{
+    const ext=f.name.split('.').pop().toLowerCase();
+    const ico=FILE_ICONS[ext]||'📄';
+    const kb=(f.size/1024).toFixed(1);
+    // escape single quotes in filenames so they survive the onclick attribute
+    const safe=f.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div class="file-chip green show">`+
+      `<span class="fc-ico">${ico}</span>`+
+      `<div class="fc-info"><div class="fc-name">${f.name}</div>`+
+      `<div class="fc-meta">${kb} KB · ${ext.toUpperCase()} · content &amp; data</div></div>`+
+      `<button class="fc-rm" onclick="_removeInputFile(event,'${safe}')">✕</button>`+
+      `</div>`;
+  }).join('');
+}
+
+function _removeInputFile(e,name){
+  e.stopPropagation();
+  inputFiles=inputFiles.filter(f=>f.name!==name);
+  inputFile=inputFiles[0]||null;
+  if(!inputFiles.length) document.getElementById('fi-input').value='';
+  _renderInputChips();
+}
 function toText(file)  { return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=rej; r.readAsText(file); }); }
 
 async function encodeFile(file){
@@ -2850,7 +3333,10 @@ const srv=()=>document.getElementById('serverUrl').value.replace(/\/$/,'');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 
 (function(){
-  const isLocal=['localhost','127.0.0.1'].includes(location.hostname);
+  // Opening this file directly (file://) has an empty location.hostname —
+  // treat that the same as localhost/127.0.0.1, not as "deployed elsewhere",
+  // otherwise every reopen silently overwrites the field back to the cloud URL.
+  const isLocal=['localhost','127.0.0.1',''].includes(location.hostname);
   if(!isLocal) document.getElementById('serverUrl').value='https://projectzen-cloudui.fly.dev';
 })();
 
@@ -3136,13 +3622,14 @@ async function generate(isRefinement=false){
   if(systemPrmt) mergedPrompt+=`System Instructions:\n${systemPrmt}`;
   if(userPrmt)   mergedPrompt+=systemPrmt?`\n\nAdditional user instructions:\n${userPrmt}`:`User Instructions:\n${userPrmt}`;
 
-  // User must provide at least one of: User Prompt OR Input File
+  // The Input File is REQUIRED. This replaced an "either a User Prompt OR an Input File"
+  // rule: a prompt alone gives Claude nothing of the project to work from, so what came
+  // back was a plausible-looking document invented from the template shape. Requiring
+  // the source removes that path rather than warning about it.
   if(!isAdmin){
-    const hasPrompt = !!userPrmt;
-    const hasFile   = !!inputFile;
-    if(!hasPrompt && !hasFile){
+    if(!inputFile){
       document.getElementById('progCard').className='prog-card show';
-      showErr('Please provide either a User Prompt / Personalization or an Input File — at least one is required.');
+      showErr('Attach an Input File to continue — step 02. Claude needs your source document (SOW, SP51, workshop notes, process maps) to generate from.');
       return;
     }
   }
@@ -3160,6 +3647,13 @@ async function generate(isRefinement=false){
     const t1=Date.now();
     // Resolve input file
     const fileData = await encodeFile(inputFile);
+    // Every selected file goes up. The server merges them under provenance headers
+    // and returns an inputReport saying which ones actually contributed.
+    const fileDataList = [];
+    for (const f of (inputFiles || [])) {
+      const enc = await encodeFile(f);
+      if (enc) fileDataList.push(enc);
+    }
 
     // Ref file priority: user ref > admin ref (saved or session)
     let refData = null;
@@ -3212,6 +3706,10 @@ async function generate(isRefinement=false){
           outputFormat:    fmt,
           fileName,
           fileData,
+          fileDataList,
+          // Graph node this template maps to. Picks the model tier for the quality
+          // pipeline; the adhoc label still drives prompts and the output filename.
+          nodeId:          templateNode(outputType) || '',
           refData,
           mirrorAspects,
           assistantMemory: assistantMemory || null,  // null on turn 1
@@ -3241,8 +3739,22 @@ async function generate(isRefinement=false){
     // Step 5: done
     setStep(5,'done','—');
 
+    // The user chose the files, so they are told what each one contributed. A .mpp
+    // that yielded a bag of strings must not look identical to a clean .docx, and a
+    // file that produced nothing at all must not pass silently.
+    const rep = data.inputReport;
+    if (rep) {
+      (rep.warnings || []).forEach(w => showToast(`${w.file}: ${w.message}`, 'error'));
+      if ((rep.files || []).length > 1) {
+        showToast('Combined ' + rep.files.length + ' files: ' +
+          rep.files.map(f => `${f.name} (${Math.round(f.chars/1000)}K chars)`).join(', '),
+          'success');
+      }
+    }
+
     const parts=[`Template: ${outputType}`,'Claude AI'];
-    if(inputFile) parts.push(`Data: "${inputFile.name}"`);
+    if(inputFiles.length>1)  parts.push(`Data: ${inputFiles.length} files`);
+    else if(inputFile)       parts.push(`Data: "${inputFile.name}"`);
     if(refFile)   parts.push(`Ref: "${refFile.name}"`);
 
     document.getElementById('rName'   ).textContent=data.fileName;
@@ -4000,7 +4512,386 @@ function cascConnectSSE(sessionId) {
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LIVE STAGE PROGRESS
+   ══════════════════════════════════════════════════════════════════════════
+   Self-contained: reads SSE events, writes to #pzLive, touches nothing else.
+   pzOnEvent() is called from the top of cascHandleEvent and never throws, so a
+   fault here cannot affect generation or any existing handler.
+
+   WHY WEIGHTED, NOT EQUAL STEPS
+   Nine stages at 11% each would sit at 78% for the ~25 minutes authoring takes —
+   worse than no bar, because it breaks its own promise at the exact moment the
+   user is most anxious. Weights below come from measured runs:
+     generate  ~18K output tokens, the slow half of the pipeline
+     authoring 607s for a 3-sheet fixture; budget 420s + 90s/sheet
+     rework    28.8s/round after patching
+     review    ~40-60s, reviewers forked in parallel
+   Replace them with medians from /health/llm telemetry once enough runs exist. */
+var PZ_STAGES = [
+  { key:'context',   label:'Extracting project context',    w:2,  eta:35   },
+  { key:'glossary',  label:'Building terminology contract',  w:1,  eta:25   },
+  { key:'research',  label:'Researching the deliverable',    w:8,  eta:190  },
+  { key:'plan',      label:'Planning sections',              w:7,  eta:165  },
+  { key:'generate',  label:'Generating the draft',           w:26, eta:620  },
+  { key:'review',    label:'Quality review',                 w:5,  eta:80   },
+  { key:'rework',    label:'Applying corrections',           w:4,  eta:45   },
+  { key:'authoring', label:'Authoring the file',             w:45, eta:1100 },
+  { key:'save',      label:'Saving & versioning',            w:2,  eta:8    }
+];
+var PZ_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+
+var pz = null, pzTimer = null, pzFrame = 0;
+
+/* A refusal carries `reason` from the backend. Rendering the raw exception text
+   ("Expecting value: line 1 column 1") told the user nothing; the whole point of
+   classifying it upstream is to say what actually happened and what to do. */
+function pzReasonText(reason, detail){
+  switch(reason){
+    case 'rate_limit':
+      return 'Claude usage limit reached for this account. Your work is saved — '
+           + 'try again after your limit resets.';
+    case 'authentication_failed':
+      return 'Claude sign-in expired. Close ProjectZen and start it again to sign in.';
+    case 'billing_error':
+      return 'This Claude account cannot make requests. Contact your administrator.';
+    case 'server_error':
+      return 'Claude had a server-side problem. Please try again shortly.';
+    case 'invalid_request':
+      return 'Claude rejected the request. ' + (detail || '');
+    default:
+      return detail || 'Generation failed.';
+  }
+}
+
+var _cascErrored = false, _cascErrorText = '';
+
+
+function pzReset(nodeLabel){
+  pz = {
+    label: nodeLabel || 'document',
+    t0: Date.now(),
+    stageT0: Date.now(),
+    cur: null,
+    shown: 0,                 // monotonic: the bar never moves backwards
+    errored: false,
+    st: {},                   // key -> {state, t0, secs, meta}
+    sub: '',
+    finished: false
+  };
+  PZ_STAGES.forEach(function(s){ pz.st[s.key] = { state:'pending', secs:0, meta:'' }; });
+  var el = document.getElementById('pzLive');
+  if (el) { el.style.display = 'block'; el.classList.remove('pz-done'); }
+  if (!pzTimer) pzTimer = setInterval(pzTick, 120);
+  pzRender();
+}
+
+/* qp_depth arrives first and states which stages this tier actually runs, so the
+   checklist is correct from the start rather than guessing and correcting later. */
+function pzApplyDepth(d){
+  if (!pz) return;
+  var prof = (d && d.profile) || 'standard';
+  if (prof === 'minimal') { pz.st.research.state = 'skip'; pz.st.plan.state = 'skip'; }
+  else if (prof === 'light') { pz.st.research.state = 'skip'; }
+  var revs = (d && d.reviewers) || [];
+  pz.reviewers = revs.slice();
+  if (!revs.length) pz.st.review.meta = 'structure only';
+  if (d && d.max_rework === 0) pz.st.rework.state = 'skip';
+  pzRender();
+}
+
+function pzActiveTotal(){
+  return PZ_STAGES.reduce(function(a,s){
+    return a + (pz.st[s.key].state === 'skip' ? 0 : s.w);
+  }, 0) || 100;
+}
+
+function pzRawPct(){
+  var total = pzActiveTotal(), acc = 0;
+  /* Sum EVERY completed stage, not just those before the active one. An earlier
+     version stopped at the first incomplete stage, so a single missing event —
+     one path that never emits context_ready, say — pinned the bar near 0% for the
+     whole run while everything downstream sailed past. Losing one stage's weight
+     is a far smaller sin than a frozen bar. */
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    if (st.state === 'done') { acc += s.w; }
+    else if (st.state === 'active'){
+      /* Sub-progress inside a stage is unknowable, so approach the next
+         checkpoint asymptotically: always moving, never overshooting. */
+      var t = (Date.now() - st.t0) / 1000;
+      acc += s.w * Math.min(1 - Math.exp(-t / Math.max(5, s.eta)), 0.97);
+    }
+  }
+  return Math.min(100 * acc / total, 99);   // 100% only when the file exists
+}
+
+/* Remaining time, from per-stage expectations calibrated by what this run has
+   actually done so far.
+
+   The obvious formula — scale total by (elapsed / completed weight) — produces an
+   estimate that GROWS while you wait: during a long stage the elapsed time climbs
+   while completed weight does not, so "24 min left" becomes "58 min left" without
+   anything going wrong. An estimate that recedes is worse than none.
+
+   So: each remaining stage contributes its own expected duration, the active stage
+   contributes only what is LEFT of its expectation, and the seeds are corrected by
+   a calibration factor measured from the stages this run has already finished. */
+function pzEta(){
+  var doneSecs = 0, doneEta = 0;
+  PZ_STAGES.forEach(function(s){
+    var st = pz.st[s.key];
+    if (st.state === 'done' && st.secs) { doneSecs += st.secs; doneEta += s.eta; }
+  });
+  if (doneEta < 60) return '';               // too little evidence to be honest yet
+
+  // How much faster or slower this machine/plan runs than the seeds assume.
+  var cal = Math.min(2.5, Math.max(0.5, doneSecs / doneEta));
+
+  var remain = 0;
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    if (st.state === 'done' || st.state === 'skip') continue;
+    var expect = s.eta * cal;
+    if (st.state === 'active'){
+      var spent = (Date.now() - st.t0) / 1000;
+      // Never claim a stage is about to end just because it overran; keep a floor.
+      remain += Math.max(expect - spent, expect * 0.15);
+    } else {
+      remain += expect;
+    }
+  }
+  if (remain < 45) return 'almost done';
+  /* A RANGE, never a point estimate. Users hold a point estimate to the second,
+     and stage durations vary far too much to earn that. */
+  var lo = Math.max(1, Math.round(remain * 0.8 / 60));
+  var hi = Math.max(lo + 1, Math.round(remain * 1.4 / 60));
+  return '≈ ' + lo + '–' + hi + ' min left';
+}
+
+function pzFmt(s){
+  s = Math.max(0, Math.round(s));
+  return Math.floor(s/60) + ':' + ('0' + (s%60)).slice(-2);
+}
+
+function pzTick(){
+  if (!pz) return;
+  pzFrame = (pzFrame + 1) % PZ_FRAMES.length;
+  var sp = document.getElementById('pzSpin');
+  if (sp) sp.textContent = pz.finished ? (pz.errored ? '✗' : '✓') : PZ_FRAMES[pzFrame];
+  if (!pz.finished) pzRender();
+}
+
+function pzRender(){
+  if (!pz) return;
+  // A failed run keeps the progress it genuinely reached; only a real completion
+  // is allowed to show 100%.
+  var pct = (pz.finished && !pz.errored) ? 100 : Math.max(pz.shown, pzRawPct());
+  pz.shown = pct;
+
+  var bar = document.getElementById('pzBar');
+  var pctEl = document.getElementById('pzPct');
+  if (bar)   bar.style.width = pct.toFixed(1) + '%';
+  if (pctEl) pctEl.textContent = Math.floor(pct) + '%';
+
+  /* Set here as well as in the tick: the timer is stopped on completion, so a
+     final ✓ / ✗ would otherwise never be painted. */
+  var sp0 = document.getElementById('pzSpin');
+  if (sp0 && pz.finished) sp0.textContent = pz.errored ? '✗' : '✓';
+
+  var cur = pz.cur ? PZ_STAGES.filter(function(s){ return s.key === pz.cur; })[0] : null;
+  var t = document.getElementById('pzTitle');
+  if (t) t.textContent = pz.finished
+    ? (pz.label + (pz.errored ? ' — failed' : ' — complete'))
+    : (cur ? cur.label : 'Starting…');
+
+  var sub = document.getElementById('pzSub');
+  if (sub) sub.innerHTML = pz.sub ? '<b>' + pzEsc(pz.sub) + '</b>' : '';
+
+  var times = document.getElementById('pzTimes');
+  if (times) times.textContent = pzFmt((Date.now() - pz.t0)/1000) + ' elapsed'
+    + (pz.finished ? '' : (pzEta() ? '  ·  ' + pzEta() : ''));
+
+  var ol = document.getElementById('pzStages');
+  if (!ol) return;
+  var html = '';
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    var cls = 'pz-stage', ico = '·';
+    if (st.state === 'done')        { cls += ' is-done';    ico = '✓'; }
+    else if (st.state === 'active') { cls += ' is-active';  ico = PZ_FRAMES[pzFrame]; }
+    else if (st.state === 'skip')   { cls += ' is-skip';    ico = '–'; }
+    else if (st.state === 'fail')   { cls += ' is-fail';    ico = '✗'; }
+    else                            { cls += ' is-pending'; }
+    var meta = st.meta || '';
+    if (st.secs) meta = (meta ? meta + '  ·  ' : '') + pzFmt(st.secs);
+    html += '<li class="' + cls + '">'
+         +  '<span class="pz-stage-ico">' + ico + '</span>'
+         +  '<span class="pz-stage-name">' + pzEsc(s.label) + '</span>'
+         +  '<span class="pz-stage-meta">' + pzEsc(meta) + '</span></li>';
+  }
+  ol.innerHTML = html;
+}
+
+function pzEsc(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function pzStart(key, sub){
+  if (!pz || !pz.st[key]) return;
+  if (pz.cur && pz.st[pz.cur] && pz.st[pz.cur].state === 'active') pzDone(pz.cur);
+  pz.st[key].state = 'active';
+  pz.st[key].t0 = Date.now();
+  pz.cur = key;
+  pz.sub = sub || '';
+  pzRender();
+}
+
+function pzDone(key, meta){
+  if (!pz || !pz.st[key]) return;
+  var st = pz.st[key];
+  if (st.t0) st.secs = (Date.now() - st.t0) / 1000;
+  st.state = 'done';
+  if (meta) st.meta = meta;
+  if (pz.cur === key) { pz.cur = null; pz.sub = ''; }
+  pzRender();
+}
+
+/* Single entry point, called from cascHandleEvent. Never throws. */
+function pzOnEvent(event, data){
+  try {
+    data = data || {};
+    switch (event) {
+      case 'session_start':
+        _cascErrored = false; _cascErrorText = '';  pzReset(''); break;
+      case 'node_generating':
+        pzReset((_cascGraphData && _cascGraphData.nodes.filter(function(n){
+          return n.id === data.node_id; })[0] || {}).label || data.node_id);
+        pzStart('context');
+        break;
+      case 'context_ready':      pzDone('context', data.project_name || ''); break;
+      case 'qp_depth':           pzApplyDepth(data); break;
+      case 'qp_glossary_start':  pzStart('glossary'); break;
+      case 'qp_glossary_done':   pzDone('glossary'); break;
+      case 'qp_research_start':  pzStart('research'); break;
+      case 'qp_research_done':
+        pzDone('research', data.chars ? (data.chars.toLocaleString() + ' chars') : '');
+        break;
+      case 'qp_plan_start':      pzStart('plan'); break;
+      case 'qp_plan_done':
+        pzDone('plan', data.chars ? (data.chars.toLocaleString() + ' chars') : '');
+        pzStart('generate');       // generation begins straight after the plan
+        break;
+      case 'content_chunk':
+        /* Also the trigger that STARTS the generate stage. On minimal-depth tiers
+           (T3/T4) there is no research or plan, so qp_plan_done never fires and
+           generation would otherwise never be marked as begun. The first streamed
+           chunk is unambiguous evidence it is under way. */
+        if (pz && pz.cur !== 'generate' && pz.st.generate.state !== 'done'){
+          pzStart('generate');
+        }
+        if (pz && pz.cur === 'generate'){
+          pz.genChars = (pz.genChars || 0) + ((data.chunk || '').length);
+          pz.sub = 'streaming — ' + pz.genChars.toLocaleString() + ' chars';
+        }
+        break;
+      case 'qp_review_start':
+        if (pz && pz.st.generate.state === 'active') pzDone('generate',
+          pz.genChars ? (pz.genChars.toLocaleString() + ' chars') : '');
+        pzStart('review', (pz && pz.reviewers && pz.reviewers.length)
+          ? pz.reviewers.join(', ') : 'structure checks');
+        break;
+      case 'qp_reviewer':
+        if (pz && pz.cur === 'review'){
+          pz.revState = pz.revState || {};
+          pz.revState[data.reviewer] = data.state;
+          var parts = Object.keys(pz.revState).map(function(k){
+            return k + (pz.revState[k] === 'done' ? ' ✓' : '…'); });
+          pz.sub = parts.join('   ');
+        }
+        break;
+      case 'qp_review_done':
+        pzDone('review', (data.findings || 0) + ' findings → ' + (data.decision || ''));
+        break;
+      case 'qp_rework_start':
+        pzStart('rework', 'round ' + (data.round || 1));
+        break;
+      case 'qp_rework_done':
+        pzDone('rework', 'round ' + (data.round || 1));
+        break;
+      case 'qp_authoring_start':
+        pzStart('authoring', 'starting…');
+        break;
+      case 'qp_authoring_step':
+        /* The heartbeat that removes the long silence. */
+        if (pz) { pz.sub = 'step ' + (data.step || 0) + ' — ' + (data.detail || ''); pzRender(); }
+        break;
+      case 'qp_authoring_done':
+        if (data.accepted){
+          var st = data.stats || {};
+          pzDone('authoring', (st.formulas || 0) + ' formulas · '
+                 + (st.rows || 0) + ' rows');
+        } else {
+          if (pz && pz.st.authoring) {
+            pz.st.authoring.state = 'skip';
+            pz.st.authoring.meta = 'standard renderer';
+            pz.cur = null;
+          }
+          pzRender();
+        }
+        pzStart('save');
+        break;
+      case 'node_complete':
+        pzDone('save', (data.size_kb ? data.size_kb + ' KB' : ''));
+        break;
+      case 'session_complete':
+        if (pz){
+          PZ_STAGES.forEach(function(s){
+            if (pz.st[s.key].state === 'active') pzDone(s.key);
+          });
+          /* Only a genuine completion reaches 100%. Forcing it here is what
+             produced "Project Plan - failed" sitting at 100%. */
+          pz.finished = true;
+          if (!pz.errored) { pz.shown = 100; pz.sub = ''; }
+          var el = document.getElementById('pzLive');
+          if (el) el.classList.add('pz-done');
+          pzRender();
+          if (pzTimer) { clearInterval(pzTimer); pzTimer = null; }
+        }
+        break;
+      case 'session_error':
+      case 'node_error':
+        if (pz){
+          if (pz.cur) pz.st[pz.cur].state = 'fail';
+          pz.errored = true; pz.finished = true;
+          pz.sub = pzReasonText(data && data.reason, data && data.error).slice(0,160);
+          pz.failReason = (data && data.reason) || '';
+          pzRender();
+        }
+        if (pzTimer) { clearInterval(pzTimer); pzTimer = null; }
+        break;
+    }
+  } catch (e) {
+    /* Progress display must never interfere with generation. */
+    if (window.console) console.warn('pz progress:', e);
+  }
+}
+
+/* The backend now picks a free port rather than always using 8001, and an
+   installed build serves this page from that same server. So when we are on
+   http(s) the correct address is simply where this page came from; the 8001
+   default only applies when the file is opened directly off disk. */
+(function pzServerDefault(){
+  try {
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    var el = document.getElementById('serverUrl');
+    if (el) el.value = location.origin;
+  } catch (e) {}
+})();
+
 function cascHandleEvent(event, data) {
+  pzOnEvent(event, data);
   switch(event) {
 
     case 'session_start':
@@ -4040,6 +4931,33 @@ function cascHandleEvent(event, data) {
       document.getElementById('cascPreviewTitle').textContent = nodeInfo?.label || data.node_id;
       document.getElementById('cascPreviewMeta').textContent  = 'Generating…';
       document.getElementById('cascPreviewBody').textContent  = '';
+      break;
+
+    case 'qp_rework_start':
+      // The quality pipeline is about to stream a CORRECTED draft for this node.
+      // content_chunk appends, so without clearing first the corrected document would
+      // be concatenated onto the draft already on screen (v0+v1+v2 back to back).
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label||data.node_id)){
+        document.getElementById('cascPreviewBody').textContent = '';
+      }
+      break;
+
+    case 'qp_authoring_start':
+      // Claude is building the real file (formulas, widths, formats) rather than
+      // emitting JSON. Nothing streams during this, so say so explicitly — an
+      // unexplained multi-minute gap here reads as a hang.
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label || data.node_id)){
+        document.getElementById('cascPreviewMeta').textContent = 'Authoring the ' + (data.format||'') + ' file…';
+      }
+      break;
+
+    case 'qp_authoring_done':
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label || data.node_id)){
+        const st = data.stats || {};
+        document.getElementById('cascPreviewMeta').textContent = data.accepted
+          ? `Authored: ${st.containers||0} sheets, ${st.rows||0} rows, ${st.formulas||0} formulas (${st.seconds||0}s)`
+          : `Standard renderer used (${data.reason||''})`;
+      }
       break;
 
     case 'content_chunk':
@@ -4082,7 +5000,13 @@ function cascHandleEvent(event, data) {
 
     case 'session_complete':
     case 'delta_complete':
-      updateProgress('All documents generated!', _cascTotalDocs, _cascTotalDocs);
+      if (_cascErrored) {
+        /* This fired unconditionally before, so a run that produced NOTHING still
+           read "All documents generated! 1/1" above a panel saying "failed". */
+        updateProgress('Stopped: ' + _cascErrorText, _cascDoneCount, _cascTotalDocs);
+      } else {
+        updateProgress('All documents generated!', _cascTotalDocs, _cascTotalDocs);
+      }
       if(_cascCyInstance) _cascCyInstance.fit(_cascCyInstance.elements(), 40);
       cascShowLibrary();
       showToast(`✓ Cascade complete — ${data.docs_generated||_cascDoneCount} documents generated`);
@@ -4530,11 +5454,777 @@ initUserMode();
 // MAIN TAB SWITCHER
 // ═══════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════
+// TEMPLATE CATALOGUE — which documents this portal offers
+//
+// Both launcher tiles open THIS page, so without the ?portal= parameter a
+// Governance user was shown all 33 templates including Functional ones. The two
+// families are now separated at source.
+//
+// Renames are ADHOC-ONLY by instruction: the knowledge graph still calls these
+// nodes "Cutover Plan" and "KT Plan + Train-the-Trainer". `node` records the graph
+// id each template maps to, which is what Phase 5 needs to run the cascade pipeline
+// here — and what stops "Cutover Strategy" producing a file named Cutover Plan.
+// ═══════════════════════════════════════════════════════
+
+const PORTAL_TEMPLATES = {
+  governance: {
+    label: 'Governance Documentation',
+    docs: [
+      { name: 'Project Plan',      node: 'project-plan' },
+      { name: 'Governance Matrix', node: 'gov-matrix'   },
+    ],
+  },
+  sf: {
+    label: 'Functional Documentation',
+    docs: [
+      { name: 'Data Migration Strategy', node: 'dm-strategy'    },
+      { name: 'Integration Strategy',    node: 'int-strategy'   },
+      { name: 'Test Strategy',           node: 'test-strategy'  },
+      { name: 'Cutover Strategy',        node: 'cutover-plan'   },  // renamed
+      { name: 'Training Strategy',       node: 'kt-plan'        },  // renamed
+      { name: 'Workshop Notes',          node: 'workshop-notes' },
+      { name: 'RTM',                     node: 'rtm'            },
+    ],
+  },
+
+  // Test Script is ADHOC-ONLY and offers exactly one template.
+  //
+  // `test-script` is deliberately NOT a knowledge-graph node. synth_node() defaults
+  // an unknown id to tier T2, and TIER_MODELS maps T2 to Opus — so Test Script gets
+  // the Opus quality bar without adding a 33rd node to the cascade graph, which is
+  // explicitly out of scope. Adding a real node would change cascade's wave maths.
+  testscript: {
+    label: 'Test Script Generator',
+    docs: [
+      { name: 'Test Script', node: 'test-script' },
+    ],
+  },
+
+  // Data Model Agent. Not a document at all: one configuration workbook in,
+  // SuccessFactors Employee Central data-model XML out. The backend routes on this
+  // exact template name, so it must not be renamed without changing
+  // DATA_MODEL_TEMPLATE in app.py.
+  workbook: {
+    label: 'Data Model Agent',
+    docs: [
+      { name: 'Data Model', node: '' },
+    ],
+  },
+};
+
+// The two deterministic CSF converters ('Data model CSF (XML) → Workbook' and
+// 'Workbook → Data model CSF (XML)') used to appear here under a "Data Model
+// Utilities" group. They are removed from EVERY adhoc template list by instruction:
+// they are file-format converters, not documents, and sitting them next to
+// "Project Plan" invited users to pick one expecting a generated deliverable.
+//
+// The backend converters are untouched and still work — the Data Model Agent portal
+// drives them instead. Kept as an empty array rather than deleted so the
+// warnIfUngrounded() guard below keeps compiling if a utility is ever reinstated.
+const UTILITY_TEMPLATES = [];
+
+// Portals that offer a single template and no cascade.
+const ADHOC_ONLY_PORTALS = ['testscript', 'workbook'];
+
+// Per-portal input constraints. Only the Data Model Agent narrows them: it reads one
+// configuration workbook, and letting someone attach four decks to it would produce
+// a confident export built from the wrong file.
+const PORTAL_RULES = {
+  workbook: {
+    accept:     '.xlsx,.xlsm',
+    multiple:   false,
+    lockFormat: 'xml',
+    hint:       'One Excel configuration workbook. The agent decides which ' +
+                'SuccessFactors data models it contains and exports each one.',
+  },
+};
+
+function currentPortal() {
+  // Driven by the catalogue itself, so adding a portal above is all that is needed —
+  // an explicit whitelist here would silently reject the next portal added.
+  const p = new URLSearchParams(location.search).get('portal');
+  return PORTAL_TEMPLATES[p] ? p : null;
+}
+
+function templateNode(name) {
+  for (const k of Object.keys(PORTAL_TEMPLATES)) {
+    const hit = PORTAL_TEMPLATES[k].docs.find(d => d.name === name);
+    if (hit) return hit.node;
+  }
+  return null;
+}
+
+function renderTemplateOptions() {
+  const sel = document.getElementById('outputType');
+  if (!sel) return;
+  const portal = currentPortal();
+  // No portal (someone opened the page directly) shows both families rather than
+  // an empty dropdown — a blank picker looks broken.
+  const keys = portal ? [portal] : ['governance', 'sf'];
+
+  let html = '<option value="">— Select Template —</option>';
+  keys.forEach(k => {
+    const grp = PORTAL_TEMPLATES[k];
+    html += `<optgroup label="${grp.label}">`;
+    grp.docs.forEach(d => { html += `<option>${d.name}</option>`; });
+    html += '</optgroup>';
+  });
+  if (UTILITY_TEMPLATES.length) {
+    html += '<optgroup label="Data Model Utilities">';
+    UTILITY_TEMPLATES.forEach(n => { html += `<option>${n}</option>`; });
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+
+  const banner = document.getElementById('portalBanner');
+  if (banner) {
+    banner.textContent = portal ? PORTAL_TEMPLATES[portal].label
+                                : 'All document families';
+  }
+
+  // Cascade builds a whole dependency chain of documents. These portals produce
+  // exactly one, so the tab could only mislead. Hidden rather than disabled: a
+  // greyed-out tab reads as "broken", an absent one reads as "not part of this tool".
+  if (ADHOC_ONLY_PORTALS.includes(portal)) {
+    const ct = document.getElementById('tabCascade');
+    if (ct) ct.style.display = 'none';
+  }
+
+  // Narrow the input control where the portal demands it. Enforced in the picker
+  // itself rather than only on submit: telling someone their four attachments are
+  // invalid AFTER they chose them is worse than not offering the choice.
+  const rules = PORTAL_RULES[portal];
+  if (rules) {
+    const fi = document.getElementById('fi-input');
+    if (fi) {
+      fi.accept   = rules.accept;
+      fi.multiple = !!rules.multiple;
+    }
+    if (rules.lockFormat) {
+      document.querySelectorAll('.fmt-btn').forEach(b => {
+        const on = b.dataset.fmt === rules.lockFormat;
+        b.classList.toggle('on', on);
+        if (!on) {
+          b.disabled      = true;
+          b.style.opacity = '0.35';
+          b.style.cursor  = 'not-allowed';
+          b.title         = 'This portal always produces ' +
+                            rules.lockFormat.toUpperCase();
+        }
+      });
+      fmt = rules.lockFormat;
+    }
+    const sub = document.getElementById('sub-input');
+    if (sub && rules.hint) sub.textContent = rules.hint;
+  }
+
+  // Auto-select when this portal offers exactly one template — single-template
+  // portals (Test Script Generator, Data Model Agent) should not make the user
+  // manually pick the only option available.
+  const realOpts = Array.from(sel.options).filter(o => o.value.trim());
+  if (realOpts.length === 1) {
+    sel.value = realOpts[0].value;
+    onOutputTypeChange();
+  }
+}
+
+// Everything the reference/format logic depends on has now been initialised, so the
+// early-init callers above may start using it. See removeFileSlot().
+window._refStateReady = true;
+
+document.addEventListener('DOMContentLoaded', renderTemplateOptions);
+
+// ═══════════════════════════════════════════════════════
+// REFERENCE-DRIVEN OUTPUT FORMAT
+//
+// The output format is not a preference — it is decided by whichever reference
+// governs the run. A reference is worth having because it carries the FORM of the
+// deliverable, and form only survives into the same file type: a Project Plan
+// grounded on a 13-sheet workbook with 722 formulas has no meaningful rendering as
+// a slide deck. Cross-format generation still "works", but it silently drops every
+// bit of the fidelity the reference was attached for.
+//
+// So: the governing reference's extension IS the output format, with no override.
+// No reference at all means nothing to inherit, and generation is blocked rather
+// than allowed to produce an invented shape.
+//
+// Precedence: the user's own attachment beats the admin template — their file is
+// about their project.
+// ═══════════════════════════════════════════════════════
+
+// Reference types we can BOTH read as a structure and emit as output.
+const REF_EXTS = ['xlsx', 'docx', 'pptx', 'pdf', 'xml'];
+
+// Legacy binaries. openpyxl / python-docx / python-pptx cannot open any of these,
+// and we never emit them — accepting one would lock output to a format we cannot
+// produce from a file we cannot read.
+const LEGACY_EXTS = { ppt: 'pptx', doc: 'docx', xls: 'xlsx' };
+
+const _refState = { template: '', adminExt: '', userExt: '', adminConfigured: false };
+
+// Show the reference upload as REQUIRED when the template has none configured.
+//
+// The upload used to live behind a toggle labelled "Use my own Reference File —
+// override the system reference". On a template with no configured reference there
+// is nothing to override, so a user met a greyed-out Output Format, a dead Generate
+// button, and an optional-looking switch as the only way out. Nothing told them that
+// switch WAS the way out. The control is the same; only when it hides changes.
+function applyReferenceRequirement() {
+  if (PORTAL_RULES[currentPortal()]) return;   // Data Model portal has its own rule
+
+  const required = !_refState.adminConfigured;
+  const row   = document.getElementById('userRefToggleRow');
+  const zone  = document.getElementById('userRefZone');
+  const badge = document.getElementById('refBadge');
+  const note  = document.getElementById('refPriorityNote');
+  const tgl   = document.getElementById('userRefToggle');
+  const main  = row ? row.querySelector('.toggle-label-main') : null;
+
+  if (required) {
+    if (row)  row.style.display = 'none';
+    if (zone) zone.className = 'user-ref-zone show';
+    if (tgl)  tgl.checked = true;             // keeps generate()'s ref logic happy
+    if (badge) { badge.textContent = 'Required'; badge.className = 'badge badge-req'; }
+    if (note) {
+      note.innerHTML = '<span style="font-size:14px;flex-shrink:0">📎</span>'
+        + '<span><strong>A reference file is required for this template.</strong> '
+        + 'Nothing is configured for '
+        + (_refState.template ? '"' + _logEscSafe(_refState.template) + '"' : 'it')
+        + ' yet, so upload the document you want this one to look like. Its file '
+        + 'type also sets the output format.</span>';
+    }
+  } else {
+    if (row)  row.style.display = '';
+    if (badge) { badge.textContent = 'Optional'; badge.className = 'badge badge-opt'; }
+    if (main) main.textContent = 'Use my own Reference File';
+    if (note) {
+      note.innerHTML = '<span style="font-size:14px;flex-shrink:0">👤</span>'
+        + '<span><strong>Your reference file takes priority.</strong> When uploaded, '
+        + 'Claude will mirror <em>your</em> file\'s style — the system reference is '
+        + 'ignored.</span>';
+    }
+    // Leave the zone as the user left it; onUserRefToggle owns it from here.
+  }
+}
+
+// Local escape so this block does not depend on the logs helpers loading first.
+function _logEscSafe(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function extOf(name) {
+  return String(name || '').split('.').pop().toLowerCase();
+}
+
+// The extension that decides the output format, or '' when nothing governs.
+function governingExt() {
+  return _refState.userExt || _refState.adminExt || '';
+}
+
+function _fmtHintEl() {
+  let el = document.getElementById('fmtLockHint');
+  if (!el) {
+    const card = document.getElementById('outputFormatCard');
+    if (!card) return null;
+    el = document.createElement('div');
+    el.id = 'fmtLockHint';
+    el.style.cssText = 'font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5';
+    card.appendChild(el);
+  }
+  return el;
+}
+
+// The ONE place that enables/disables formats and the two action buttons. Keeping
+// it single-sourced matters: three different events change the governing reference
+// (template chosen, file attached, file removed) and any of them getting it wrong
+// would leave the user staring at a disabled button with no explanation.
+function applyFormatLock() {
+  // Portals with their own hard rule (Data Model = always XML) are not touched.
+  if (PORTAL_RULES[currentPortal()]) return;
+
+  const ext  = governingExt();
+  const btns = Array.prototype.slice.call(document.querySelectorAll('.fmt-btn'));
+  const gen  = document.getElementById('genBtn');
+  const rfn  = document.getElementById('refineBtn');
+  const hint = _fmtHintEl();
+
+  if (!ext) {
+    btns.forEach(b => {
+      b.classList.remove('on');
+      b.disabled = true; b.style.opacity = '0.35'; b.style.cursor = 'not-allowed';
+      b.title = 'Attach a reference file to enable an output format';
+    });
+    fmt = '';
+    // Refine is disabled alongside Generate on purpose. Refining an ungrounded
+    // document would produce exactly the invented-shape output this rule exists to
+    // prevent, and a Refine button that works when Generate does not reads as a bug.
+    [gen, rfn].forEach(b => {
+      if (!b) return;
+      b.disabled = true;
+      b.title = 'A reference file is required — attach one under "Reference File — '
+              + 'Style & Structure", or ask an administrator to configure one for '
+              + 'this template.';
+    });
+    if (hint) {
+      hint.innerHTML = '<strong>No reference file.</strong> The output format follows '
+        + 'the reference, so attach one above (or have an administrator configure one '
+        + 'for this template) to enable generation.';
+    }
+    return;
+  }
+
+  btns.forEach(b => {
+    const on = b.dataset.fmt === ext;
+    b.classList.toggle('on', on);
+    b.disabled = !on;
+    b.style.opacity = on ? '' : '0.35';
+    b.style.cursor  = on ? '' : 'not-allowed';
+    b.title = on ? '' : 'Output must match the reference file (.' + ext + ')';
+  });
+  fmt = ext;
+  [gen, rfn].forEach(b => { if (b) { b.disabled = false; b.title = ''; } });
+  if (hint) {
+    const src = _refState.userExt ? 'your attached reference'
+                                  : 'the template\'s configured reference';
+    hint.innerHTML = 'Locked to <strong>.' + ext + '</strong> to match ' + src +
+      '. Generating in a different format would discard the layout and styling the '
+      + 'reference provides.';
+  }
+}
+
+// Called when the user attaches or clears their own reference file.
+function setUserRefExt(fileName) {
+  _refState.userExt = fileName ? extOf(fileName) : '';
+  applyFormatLock();
+}
+
+const _groundedCache = {};
+
+async function warnIfUngrounded(templateName) {
+  _refState.template = templateName || '';
+  _refState.adminExt = '';
+  _refState.adminConfigured = false;
+  if (!templateName) { applyReferenceRequirement(); applyFormatLock(); return; }
+  // Utilities are deterministic converters, not generated documents — no grounding.
+  if (UTILITY_TEMPLATES.includes(templateName)) {
+    applyReferenceRequirement(); applyFormatLock(); return;
+  }
+  // Portals with their own hard rules (e.g. workbook/Data Model Agent) handle
+  // format and reference entirely themselves — they must not show a "no reference
+  // configured" toast because they don't use the admin reference mechanism at all.
+  if (PORTAL_RULES[currentPortal()]) { applyReferenceRequirement(); applyFormatLock(); return; }
+
+  if (_groundedCache[templateName] !== undefined) {
+    _refState.adminExt = _groundedCache[templateName];
+    _refState.adminConfigured = !!_refState.adminExt;
+    applyReferenceRequirement();
+    applyFormatLock();
+    return;
+  }
+  try {
+    const cfg = await fetch(srv() + '/admin/adhoc-config/' +
+                            encodeURIComponent(templateName)).then(r => r.json());
+    const grounded = !!(cfg && cfg.configured && cfg.ref_id);
+    // file_ext is what the admin actually uploaded; fall back to parsing the name
+    // so an older row saved without the column still locks correctly.
+    let ext = grounded ? String(cfg.file_ext || extOf(cfg.file_name) || '').toLowerCase() : '';
+    if (ext && !REF_EXTS.includes(ext)) ext = '';
+    _groundedCache[templateName] = ext;
+    _refState.adminExt = ext;
+    _refState.adminConfigured = !!ext;
+    if (!grounded) {
+      showToast(
+        `"${templateName}" has no reference document configured. Upload the document `
+        + `you want it to look like under "Reference File — Style & Structure" — its `
+        + `file type sets the output format. An administrator can also configure one `
+        + `for everyone under Admin → Template Config.`,
+        'error');
+    }
+  } catch (e) {
+    // A diagnostic must not silently lock the user out. If the config cannot be
+    // read we leave adminExt empty; an attached user reference still unlocks.
+  }
+  applyReferenceRequirement();
+  applyFormatLock();
+}
+
 function switchMainTab(tab) {
   document.querySelectorAll('.main-tab').forEach(b => b.classList.remove('on'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('on'));
   document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('on');
   document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('on');
+  if (tab === 'logs') logRefresh();
+}
+
+// ═══════════════════════════════════════════════════════
+// LOGS TAB — Current Run + Run History
+//
+// Read-only over /logs/*. Polls ONLY while this tab is open and a run is live,
+// so an idle tab costs nothing and a hidden tab costs nothing — the generation
+// path must not pay for a diagnostics panel nobody is looking at.
+// ═══════════════════════════════════════════════════════
+
+let _logTimer = null;
+let _logSelected = new Set();
+
+function _logEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function _logDur(ms) {
+  if (!ms && ms !== 0) return '—';
+  const s = ms / 1000;
+  if (s < 60) return s.toFixed(1) + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + Math.round(s % 60) + 's';
+}
+
+function _logWhen(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined,
+      { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  } catch (e) { return iso; }
+}
+
+function _logBadge(status) {
+  const cls = { running:'log-running', ok:'log-ok', partial:'log-partial',
+                failed:'log-failed', interrupted:'log-interrupted' }[status] || 'log-idle';
+  return '<span class="log-badge ' + cls + '">' + _logEsc(status) + '</span>';
+}
+
+async function logRefresh() {
+  if (!document.getElementById('panelLogs').classList.contains('on')) return;
+  try {
+    const [cur, hist] = await Promise.all([
+      fetch(srv() + '/logs/current').then(r => r.json()),
+      fetch(srv() + '/logs/runs').then(r => r.json()),
+    ]);
+    // A run in progress selects its own kind, so a live trace is never sitting
+    // behind an unselected dropdown — that would defeat being able to look at a
+    // generation while it is still going. Only ever sets the value the user has not
+    // set themselves: overriding an explicit choice would make the control snap back
+    // under them and read as broken.
+    const liveKind = cur && cur.live && cur.run && cur.run.kind
+      ? (_LOG_KIND_GROUP[cur.run.kind] || '') : '';
+    const kindSel = document.getElementById('logKindSelect');
+    if (kindSel && liveKind && !_logKindTouched && kindSel.value !== liveKind) {
+      kindSel.value = liveKind;
+    }
+
+    _logRenderCurrent(cur);
+    _logRenderHistory(hist);
+
+    // Poll only while something is actually running. A finished run's numbers do
+    // not change, so continuing to poll would be pure waste.
+    clearTimeout(_logTimer);
+    if (cur.live) _logTimer = setTimeout(logRefresh, 3000);
+  } catch (e) {
+    document.getElementById('logCurrentBody').innerHTML =
+      '<div class="log-empty">Could not reach the server for logs.</div>';
+  }
+}
+
+function _logRenderCurrent(payload) {
+  const badge = document.getElementById('logLiveBadge');
+  const body  = document.getElementById('logCurrentBody');
+  const run   = payload && payload.run;
+
+  if (payload && payload.retention) {
+    document.getElementById('logRetention').textContent =
+      'Logs are kept for ' + payload.retention.max_age_days + ' days or the last ' +
+      payload.retention.max_runs + ' runs, whichever comes first.';
+  }
+
+  if (!run) {
+    badge.className = 'log-badge log-idle';
+    badge.textContent = 'idle';
+    body.innerHTML = '<div class="log-empty">No runs yet. Generate a document and its trace appears here.</div>';
+    return;
+  }
+
+  window.__pzLogCurrentId = run.run_id;
+  const status = payload.live ? 'running' : run.status;
+  badge.className = 'log-badge ' + ({ running:'log-running', ok:'log-ok',
+    partial:'log-partial', failed:'log-failed', interrupted:'log-interrupted'
+  }[status] || 'log-idle');
+  badge.textContent = payload.live ? 'running' : ('last run — ' + status);
+
+  body.innerHTML = _logRenderRun(run, payload.live);
+}
+
+function _logRenderRun(run, live) {
+  const t = run.totals || {}, c = run.counts || {}, a = run.account || {}, e = run.env || {};
+  let h = '';
+
+  h += '<div class="log-kv">';
+  h += '<div>Run <b>' + _logEsc(run.run_id) + '</b></div>';
+  h += '<div>Type <b>' + _logEsc(run.kind) + '</b></div>';
+  h += '<div>Started <b>' + _logWhen(run.started) + '</b></div>';
+  h += '<div>Duration <b>' + _logDur(run.wall_ms) + '</b></div>';
+  if (run.meta && run.meta.input_file)
+    h += '<div>Input <b>' + _logEsc(run.meta.input_file) + '</b></div>';
+  if (a.email)
+    h += '<div>Account <b>' + _logEsc(a.email) + '</b> (' +
+         _logEsc(a.subscriptionType || a.orgName || '?') + ')</div>';
+  if (e.windows_user)
+    h += '<div>User <b>' + _logEsc(e.windows_user) + '</b></div>';
+  h += '</div>';
+
+  h += '<div class="log-stats">';
+  h += '<div class="log-stat"><div class="n">' + (c.succeeded || 0) + ' / ' +
+       (c.requested || 0) + '</div><div class="l">documents</div></div>';
+  if (c.failed) h += '<div class="log-stat"><div class="n" style="color:#dc2626">' +
+       c.failed + '</div><div class="l">failed</div></div>';
+  h += '<div class="log-stat"><div class="n">' + (t.calls || 0) + '</div><div class="l">llm calls</div></div>';
+  h += '<div class="log-stat"><div class="n">' + ((t.billable_input || 0)).toLocaleString() +
+       '</div><div class="l">billable in</div></div>';
+  h += '<div class="log-stat"><div class="n">' + ((t.output || 0)).toLocaleString() +
+       '</div><div class="l">out</div></div>';
+  h += '<div class="log-stat"><div class="n">' + (t.cache_hit_pct || 0) + '%</div><div class="l">cache hit</div></div>';
+  // "cost" implied money actually spent. It is not: these runs are served by an
+  // enterprise Claude seat and are never billed per token — the figure is what the
+  // same tokens would list at on the public API. Labelled as cost it invites
+  // "why is one document so expensive?" about a charge that does not exist.
+  h += '<div class="log-stat" title="Estimated at public API list rates. Served by an enterprise Claude seat — not billed per token.">' +
+       '<div class="n">$' + (t.cost_usd || 0) + '</div><div class="l">est. list rate</div></div>';
+  h += '</div>';
+
+  // Failures first — this is the reason anyone opens this panel.
+  (run.failures || []).forEach(f => {
+    const err = f.error || {};
+    h += '<div class="log-fail"><div class="h">' + _logEsc(f.node_id || 'run') + ' — ' +
+         _logEsc(f.where || '') + '</div>';
+    h += '<div><b>' + _logEsc(err.type || 'error') + '</b>: ' + _logEsc(err.message || '') + '</div>';
+    ['reason', 'detail', 'is_retryable'].forEach(k => {
+      if (err[k] !== undefined && err[k] !== null)
+        h += '<div>' + k + ': ' + _logEsc(err[k]) + '</div>';
+    });
+    if (err.traceback) h += '<pre>' + _logEsc(err.traceback) + '</pre>';
+    h += '</div>';
+  });
+
+  if ((run.nodes || []).length) {
+    h += '<div class="log-sub">Documents</div>';
+    h += '<table class="log-table"><thead><tr><th>Document</th><th>Status</th>' +
+         '<th class="num">Time</th><th>Model</th><th class="num">Calls</th>' +
+         '<th class="num">In</th><th class="num">Out</th><th class="num">Est. cost</th></tr></thead><tbody>';
+    run.nodes.forEach(n => {
+      h += '<tr><td>' + _logEsc(n.label) + '</td><td>' + _logBadge(n.status) + '</td>' +
+           '<td class="num">' + _logDur(n.duration_ms) + '</td>' +
+           '<td>' + _logEsc(n.model || '—') + '</td>' +
+           '<td class="num">' + n.calls + '</td>' +
+           '<td class="num">' + n.billable_input.toLocaleString() + '</td>' +
+           '<td class="num">' + n.output.toLocaleString() + '</td>' +
+           '<td class="num">$' + n.cost_usd + '</td></tr>';
+      (n.stages || []).forEach(s => {
+        h += '<tr><td style="padding-left:26px;color:var(--muted2)">↳ ' + _logEsc(s.stage) +
+             '</td><td>' + _logEsc(s.status) + '</td><td class="num">' +
+             _logDur(s.duration_ms) + '</td><td colspan="5"></td></tr>';
+      });
+    });
+    h += '</tbody></table>';
+  }
+
+  if ((run.stages || []).length) {
+    h += '<div class="log-sub">Where the model time went</div>';
+    h += '<table class="log-table"><thead><tr><th>Stage</th><th class="num">Calls</th>' +
+         '<th class="num">Time</th><th class="num">In</th><th class="num">Out</th>' +
+         '<th class="num">Est. cost</th></tr></thead><tbody>';
+    run.stages.slice(0, 12).forEach(s => {
+      h += '<tr><td>' + _logEsc(s.stage) + '</td><td class="num">' + s.calls + '</td>' +
+           '<td class="num">' + _logDur(s.ms) + '</td>' +
+           '<td class="num">' + s.billable_input.toLocaleString() + '</td>' +
+           '<td class="num">' + s.output.toLocaleString() + '</td>' +
+           '<td class="num">$' + s.cost_usd + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+
+  if (live) h += '<div class="log-retention" style="margin-top:12px">' +
+    'This run is still in progress — Export now to capture exactly where it has reached.</div>';
+  return h;
+}
+
+// ── Which runs belong on screen ─────────────────────────────────────────
+//
+// Two independent filters. The DROPDOWN picks adhoc or cascade, because one merged
+// list of both was confusing. The PORTAL narrows adhoc runs to the documents this
+// launcher tile actually offers, so "Governance Documentation" does not show someone
+// else's Test Script run.
+//
+// Cascade is listed exactly as recorded and is NOT portal-filtered: a cascade run
+// spans the whole graph, and attributing it per portal would mean reading and
+// interpreting cascade's own metadata — out of scope during the adhoc pilot.
+
+// Delta runs are cascade operations over a subset of the graph, so they belong under
+// the Cascade option; they keep their own badge so they stay distinguishable.
+const _LOG_KIND_GROUP = { adhoc: 'adhoc', cascade: 'cascade', delta: 'cascade' };
+
+const _LOG_BADGES = {
+  adhoc:   { icon: '✦', label: 'Adhoc',   col: 'var(--acc,#a100ff)' },
+  cascade: { icon: '⚡', label: 'Cascade', col: 'var(--teal,#0e7c86)' },
+  delta:   { icon: '↺', label: 'Delta',   col: 'var(--amber,#c98a00)' },
+};
+
+function _logKindBadge(kind) {
+  const b = _LOG_BADGES[kind];
+  if (!b) return _logEsc(kind || '—');
+  return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;'
+       + 'font-weight:700;color:' + b.col + '">' + b.icon + ' ' + b.label + '</span>';
+}
+
+// Templates this portal offers. Empty when the page was opened without ?portal=,
+// which means "do not filter" rather than "show nothing".
+function _portalTemplates() {
+  const p = currentPortal();
+  if (!p || !PORTAL_TEMPLATES[p]) return null;
+  return PORTAL_TEMPLATES[p].docs.map(d => d.name);
+}
+
+function _logVisible(runs, kind) {
+  if (!kind) return [];
+  const wanted = runs.filter(r => _LOG_KIND_GROUP[r.kind] === kind);
+  if (kind !== 'adhoc') return wanted;
+
+  const allowed = _portalTemplates();
+  if (!allowed) return wanted;
+  return wanted.filter(r => {
+    const t = (r.meta && r.meta.template) || '';
+    // Runs recorded before the template was captured cannot be attributed. They are
+    // KEPT rather than hidden — dropping history a user can see today would be a
+    // regression, and a blank template is visibly "unknown", not "not yours".
+    if (!t) return true;
+    return allowed.indexOf(t) !== -1;
+  });
+}
+
+function logKindChanged() {
+  _logKindTouched = true;          // an explicit choice must not be overridden
+  logRefresh();
+}
+
+let _logKindTouched = false;
+
+function _logRenderHistory(payload) {
+  const body = document.getElementById('logHistoryBody');
+  const sel  = document.getElementById('logKindSelect');
+  const all  = (payload && payload.runs) || [];
+  const kind = sel ? sel.value : '';
+
+  if (!kind) {
+    body.innerHTML = '<div class="log-empty">Choose a log type above to see runs.</div>';
+    return;
+  }
+
+  const runs = _logVisible(all, kind);
+  if (!runs.length) {
+    const where = (kind === 'adhoc' && _portalTemplates())
+      ? ' for ' + _logEsc(PORTAL_TEMPLATES[currentPortal()].label) : '';
+    body.innerHTML = '<div class="log-empty">No ' + _logEsc(kind) + ' runs yet' + where +
+                     '.</div>';
+    return;
+  }
+
+  let h = '<table class="log-table"><thead><tr><th style="width:26px"></th><th>When</th>' +
+          '<th>Type</th><th>Document</th><th>Input</th><th>Status</th>' +
+          '<th class="num">Duration</th><th class="num">Size</th><th></th></tr></thead><tbody>';
+  runs.forEach(r => {
+    const checked = _logSelected.has(r.run_id) ? ' checked' : '';
+    const open = ' onclick="logOpen(\'' + _logEsc(r.run_id) + '\')"';
+    h += '<tr class="log-row-click">' +
+         '<td><input type="checkbox" data-run="' + _logEsc(r.run_id) + '"' + checked +
+         ' onchange="logToggle(this)"></td>' +
+         '<td' + open + '>' + _logWhen(r.started) + '</td>' +
+         '<td' + open + '>' + _logKindBadge(r.kind) + '</td>' +
+         '<td' + open + '>' + _logEsc((r.meta && r.meta.template) || '—') + '</td>' +
+         '<td' + open + '>' +
+             _logEsc((r.meta && r.meta.input_file) || '—') + '</td>' +
+         '<td' + open + '>' + _logBadge(r.status) + '</td>' +
+         '<td class="num"' + open + '>' + _logDur(r.duration_ms) + '</td>' +
+         '<td class="num"' + open + '>' +
+             Math.max(1, Math.round((r.bytes || 0) / 1024)) + ' KB</td>' +
+         '<td><button class="log-btn" onclick="logExportOne(\'' + _logEsc(r.run_id) +
+             '\')">⬇</button></td></tr>';
+  });
+  h += '</tbody></table>';
+  body.innerHTML = h;
+}
+
+function logToggle(cb) {
+  if (cb.checked) _logSelected.add(cb.dataset.run);
+  else _logSelected.delete(cb.dataset.run);
+}
+
+function logSelectAll() {
+  const boxes = document.querySelectorAll('#logHistoryBody input[type=checkbox]');
+  const turnOn = _logSelected.size < boxes.length;
+  _logSelected.clear();
+  boxes.forEach(b => { b.checked = turnOn; if (turnOn) _logSelected.add(b.dataset.run); });
+}
+
+async function logOpen(runId) {
+  const card = document.getElementById('logDetailCard');
+  const body = document.getElementById('logDetailBody');
+  window.__pzLogDetailId = runId;
+  card.style.display = 'block';
+  body.innerHTML = '<div class="log-empty">Loading…</div>';
+  document.getElementById('logDetailTitle').textContent = 'Run detail — ' + runId;
+  try {
+    const run = await fetch(srv() + '/logs/runs/' + encodeURIComponent(runId)).then(r => r.json());
+    body.innerHTML = _logRenderRun(run, run.status === 'running');
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    body.innerHTML = '<div class="log-empty">Could not load that run.</div>';
+  }
+}
+
+// ── Export ───────────────────────────────────────────────────────────────
+// The server also drops a copy into Desktop\ProjectZen Logs and reports the path
+// in X-Saved-To, so the user is not left hunting through the browser's download
+// folder for a file they need to attach to an email.
+async function _logDownload(url, opts) {
+  try {
+    const res = await fetch(url, opts || {});
+    if (!res.ok) { showToast('Export failed.', 'error'); return; }
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = /filename="([^"]+)"/.exec(cd);
+    const name = m ? m[1] : 'projectzen-logs.zip';
+    const saved = res.headers.get('X-Saved-To');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast(saved ? ('Saved to ' + saved) : ('Downloaded ' + name), 'success');
+  } catch (e) {
+    showToast('Export failed: ' + e.message, 'error');
+  }
+}
+
+function logExportOne(runId) {
+  if (!runId) { showToast('No run selected.', 'error'); return; }
+  _logDownload(srv() + '/logs/runs/' + encodeURIComponent(runId) + '/download');
+}
+
+function logExportCurrent() {
+  if (!window.__pzLogCurrentId) { showToast('There is no run to export yet.', 'error'); return; }
+  logExportOne(window.__pzLogCurrentId);
+}
+
+function logExportSelected() {
+  const ids = Array.from(_logSelected);
+  if (!ids.length) { showToast('Tick one or more runs in the history first.', 'error'); return; }
+  _logDownload(srv() + '/logs/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runIds: ids, desktop: true }),
+  });
 }
 
 // ═══════════════════════════════════════════════════════

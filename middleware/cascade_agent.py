@@ -31,7 +31,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure stdout handles unicode on Windows (cp1252 can't encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -40,10 +40,45 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-import anthropic
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
 
+from llm_client import complete
+
+try:
+    from llm_client import usage_scope, usage_summary
+except ImportError:                       # a transport without telemetry
+    import contextlib
+
+    @contextlib.contextmanager
+    def usage_scope(_label):              # type: ignore[misc]
+        yield
+
+    def usage_summary(_prefix=""):        # type: ignore[misc]
+        return {"calls": 0}
+
+# The durable per-run trace. Stubbed the same way usage_scope is, so a missing or
+# broken runlog degrades to no logging rather than taking generation down with it.
+try:
+    import runlog
+except Exception:                         # pragma: no cover - defensive
+    import contextlib as _cl
+    import types as _ty
+
+    def _noop(*_a, **_k):
+        return None
+
+    @_cl.contextmanager
+    def _noop_scope(*_a, **_k):
+        yield
+
+    async def _anoop(*_a, **_k):
+        return None
+
+    runlog = _ty.SimpleNamespace(                       # type: ignore[assignment]
+        start_run=_noop, finish_run=_noop, emit=_noop, record_error=_noop,
+        node_scope=_noop_scope, stage_scope=_noop_scope, emit_env=_anoop,
+    )
 from context_store import (
     CascadeState,
     make_initial_state,
@@ -72,19 +107,61 @@ from db import (
     finalise_cascade_document,
 )
 from extractor import extract_text
+from quality.pipeline import run_quality_pipeline
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-BASE_DIR  = Path(__file__).parent.parent
-STORE_DIR = BASE_DIR / "storage" / "document_store"
-REFS_DIR  = BASE_DIR / "storage" / "document_store" / "refs"
+from paths import DATA_DIR as BASE_DIR, STORE_DIR, REFS_DIR
 
 OPUS_MODEL   = "claude-opus-4-8"
 SONNET_MODEL = "claude-sonnet-4-6"
-MAX_TOKS_CTX = 8192    # context extraction
-MAX_TOKS_GEN = 32000   # document generation
+# ── Context budgets (chars) ───────────────────────────────────────────────────
+# These replace the previous 2,500-6,000 char ceilings, which were starving
+# generation. Measured on a real run: a 41,852-char reference workbook reached the
+# model as 4,000 chars (9.6% — it never saw sheets 2-10), and the uploaded SP51
+# reached it as 2,500 chars (~3%). The model was not producing thin documents
+# because it reasoned poorly; it was producing them because it could not see the
+# source material.
+#
+# extract_text() already caps extraction at 80,000 chars, so that is the real
+# upper bound here, not these numbers. Claude Opus has a 1M-token context window,
+# so these are comfortable; the practical cost is latency, not capacity.
+MAX_SOURCE_CHARS      = 80000   # the uploaded root document (SP51 / SOW)
+MAX_PARENT_CHARS      = 8000    # a sibling doc generated earlier (its stored
+                                # content_summary is itself capped at 8000)
+MAX_GROUNDING_CHARS   = 80000   # admin-uploaded reference template, as extracted
+MAX_GROUNDING_PROMPT  = 60000   # how much of it reaches the generation prompt
+MAX_CTX_CHARS         = 20000   # the extracted project-context JSON
+
+# NOTE: MAX_TOKS_CTX / MAX_TOKS_GEN used to live here. They were dead constants —
+# llm_client.complete() drives the `claude` CLI via the Agent SDK, and
+# ClaudeAgentOptions exposes no token ceiling (only max_turns / max_budget_usd).
 
 # LangGraph checkpointer (in-memory; sessions live for the server lifetime)
 _checkpointer = MemorySaver()
+
+# ── Wave concurrency ──────────────────────────────────────────────────────────
+# A wave generates up to 4 documents at once, and each document is no longer a
+# single CLI process: it opens a generation session, forks one per reviewer, and may
+# run an authoring agent. Peak is therefore roughly 4 x (1 + reviewers + 1) — around
+# 16 concurrent `claude` processes.
+#
+# That is survivable on one laptop, but end users share an Enterprise org. Several
+# colleagues each running a cascade multiplies this against org-level limits that a
+# single Pro account never encounters. Capping documents (not processes) keeps the
+# knob understandable; 4 preserves today's behaviour exactly, so this is a ceiling
+# to lower on a shared org rather than a change in default behaviour.
+MAX_PARALLEL_DOCS = int(os.environ.get("PROJECTZEN_MAX_PARALLEL_DOCS") or 4)
+
+_DOC_SEM: Optional[asyncio.Semaphore] = None
+
+
+def _doc_semaphore() -> asyncio.Semaphore:
+    """Created lazily: a Semaphore binds to the running loop, and this module is
+    imported long before uvicorn's loop exists."""
+    global _DOC_SEM
+    if _DOC_SEM is None:
+        _DOC_SEM = asyncio.Semaphore(max(1, MAX_PARALLEL_DOCS))
+    return _DOC_SEM
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -147,7 +224,7 @@ async def _resolve_grounding(node_id: str) -> Tuple[str, str]:
             if matches:
                 fpath = str(matches[0])
                 try:
-                    return extract_text(fpath)[:6000], fpath
+                    return extract_text(fpath)[:MAX_GROUNDING_CHARS], fpath
                 except Exception:
                     return "", fpath
     except Exception as e:
@@ -159,7 +236,7 @@ async def _resolve_grounding(node_id: str) -> Tuple[str, str]:
         if matches:
             fpath = str(matches[0])
             try:
-                return extract_text(fpath)[:6000], fpath
+                return extract_text(fpath)[:MAX_GROUNDING_CHARS], fpath
             except Exception:
                 return "", fpath
     return "", ""
@@ -183,14 +260,19 @@ async def _get_parent_contents(
             continue
         entry = generated_docs[parent_id]
         if entry.get("_is_input"):
-            # Synthetic entry for the user-uploaded root document — content stored directly
-            result[parent_id] = entry.get("content_summary", "")[:3000]
+            # The user-uploaded root document (SP51/SOW). This is the single richest
+            # input any document has, so it gets a much larger budget than a sibling
+            # summary — it was previously capped at 3,000 chars, which is why
+            # generated documents read as generic.
+            result[parent_id] = entry.get("content_summary", "")[:MAX_SOURCE_CHARS]
         else:
             file_id = entry.get("file_id", "")
             if file_id:
                 doc = await get_document(file_id)
                 if doc:
-                    result[parent_id] = (doc.get("content_summary") or "")[:3000]
+                    # A doc generated earlier in this cascade; its stored
+                    # content_summary is already capped at 8,000 by save_document.
+                    result[parent_id] = (doc.get("content_summary") or "")[:MAX_PARENT_CHARS]
     return result
 
 
@@ -227,8 +309,6 @@ _CTX_SYSTEM = (
 
 async def extract_project_context(input_text: str, session_id: str) -> Dict[str, Any]:
     """Agent 2: Extract structured project context from the input document."""
-    client = anthropic.AsyncAnthropic()
-
     prompt = (
         f"Extract all project facts from the document below into the JSON schema.\n\n"
         f"SCHEMA:\n{_CTX_SCHEMA}\n\n"
@@ -238,23 +318,14 @@ async def extract_project_context(input_text: str, session_id: str) -> Dict[str,
 
     await emit_event(session_id, "status", {"message": "Extracting project context..."})
 
-    raw = ""
     for attempt in range(1, 4):
         try:
-            async with client.messages.stream(
-                model=OPUS_MODEL,
-                max_tokens=MAX_TOKS_CTX,
-                system=_CTX_SYSTEM,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                async for text in stream.text_stream:
-                    raw += text
+            raw = await complete(prompt, system=_CTX_SYSTEM, model=OPUS_MODEL)
             ctx = json.loads(_clean_json(raw))
             print(f"   ✅ Context extracted: {ctx.get('project_name', '?')} / {ctx.get('client_name', '?')}")
             return ctx
         except Exception as e:
             print(f"   ⚠ Context extraction attempt {attempt}: {e}")
-            raw = ""
 
     # Fallback: minimal context from raw text
     return {
@@ -289,12 +360,22 @@ _FORMAT_SCHEMAS = {
     "xml":  '{"title":"string","subtitle":"string","sheets":[{"name":"string","headers":["string"],"rows":[["string"]],"has_totals":false}]}',
 }
 
+# Volume targets. Raised from the originals (xlsx was "5-8 sheets, 10-25 rows"),
+# which sat far below real delivery artefacts — a genuine reference Project Plan in
+# this estate is 10 sheets / 417 rows. These stay deliberately in step with
+# MIN_VOLUME in quality/reviewers/structure.py: the prompt must ask for at least
+# what the validator enforces, or every document fails a check it was never told
+# to satisfy. If you raise one, raise the other.
+#
+# "If the REFERENCE TEMPLATE is larger than these numbers, follow the reference"
+# matters more than the numbers themselves — the ranges are a floor for documents
+# that have no grounding template, not a ceiling for those that do.
 _FORMAT_DETAIL = {
-    "xlsx": "Generate 5-8 sheets. Each sheet: 10-25 data rows. Extract real project data for every cell.",
-    "docx": "Generate 6-12 sections. Each section: 2-5 paragraphs. Tables: 8-20 rows. Use specific project facts.",
-    "pdf":  "Generate 6-12 sections. Each: 2-4 paragraphs. Include tables where appropriate.",
-    "pptx": "Generate 8-15 slides. Mix title, bullets, and table slide types.",
-    "xml":  "Generate 3-5 entities. Each: 8-15 records. Use reference schema field names.",
+    "xlsx": "Generate 6-10 sheets. Each sheet: 15-40 data rows. Extract real project data for every cell. If a REFERENCE TEMPLATE is supplied, match its sheet set and row depth instead of these minimums.",
+    "docx": "Generate 8-14 sections. Each section: 3-6 paragraphs. Tables: 10-25 rows. Use specific project facts. If a REFERENCE TEMPLATE is supplied, match its section set and depth instead of these minimums.",
+    "pdf":  "Generate 8-14 sections. Each: 3-5 paragraphs. Include tables where appropriate. If a REFERENCE TEMPLATE is supplied, match its structure and depth.",
+    "pptx": "Generate 10-18 slides. Mix title, bullets, and table slide types. If a REFERENCE TEMPLATE is supplied, match its deck structure.",
+    "xml":  "Generate 4-6 entities. Each: 10-20 records. Use reference schema field names.",
 }
 
 
@@ -308,10 +389,20 @@ def _build_gen_prompt(
     delta_items:    Optional[List[Dict]] = None,
     existing_content: Optional[str] = None,
     version:        int = 1,
+    extra_blocks:   str = "",
+    detail_override: str = "",
 ) -> str:
-    """Build the generation prompt for Agent 3."""
+    """
+    Build the generation prompt for Agent 3.
 
-    proj_json = json.dumps(project_ctx, indent=2)[:6000]
+    extra_blocks: optional research/plan/glossary material from the quality pipeline.
+    It is interpolated immediately BEFORE the HARD RULES block so the last thing the
+    model reads is still "Return ONLY the JSON object" — appending it after that
+    measurably degrades JSON adherence on a path that already needs a 3-attempt retry.
+    Defaults to "", so every existing caller is unaffected.
+    """
+
+    proj_json = json.dumps(project_ctx, indent=2)[:MAX_CTX_CHARS]
     impact    = get_change_impact(node_id)
 
     parent_block = ""
@@ -320,11 +411,37 @@ def _build_gen_prompt(
         for pid, content in list(parent_contents.items())[:6]:
             pnode  = get_node(pid)
             plabel = pnode["label"] if pnode else pid
-            parent_block += f"\n--- {plabel} ---\n{content[:2500]}\n"
+            parent_block += f"\n--- {plabel} ---\n{content[:MAX_SOURCE_CHARS]}\n"
 
     grounding_block = ""
     if grounding_text:
-        grounding_block = f"\n\nREFERENCE TEMPLATE (follow this structure exactly):\n{grounding_text[:4000]}\n"
+        grounding_block = (
+            "\n\nREFERENCE TEMPLATE — this is a document from a PREVIOUS engagement. "
+            "It shows you HOW this deliverable is built, not WHAT belongs in it.\n\n"
+            "COPY FROM THE REFERENCE (the form):\n"
+            "- Sheet/section layout and the shape of the hierarchy\n"
+            "- Column names, heading style, naming and ID conventions\n"
+            "- Tone, level of detail, and how densely each area is populated\n\n"
+            "DERIVE FROM THE INPUT DOCUMENT (the substance):\n"
+            "- Which modules, workstreams, phases, countries and deliverables actually "
+            "exist. The reference describes a DIFFERENT project — its scope is not "
+            "this project's scope.\n"
+            "- Add a sheet/section for every in-scope item named in the input, EVEN IF "
+            "the reference has no equivalent one. Enumerate the in-scope modules, "
+            "workstreams and countries from PROJECT CONTEXT above BEFORE you start, "
+            "and give each one its own sheet/section. Then count them again before "
+            "you return. Dropping one because the reference happens to lack it is the "
+            "single most common way this task fails, and the result is a plan for "
+            "contracted work that will never be scheduled or costed.\n"
+            "- Omit anything the reference covers that this project does not include.\n"
+            "- Use this project's real names, dates, figures and owners — never the "
+            "reference's.\n\n"
+            "Mirroring the reference's scope instead of the input's is a CRITICAL "
+            "failure: it produces a plan for the wrong project that merely looks "
+            "correct.\n\n"
+            "REFERENCE TEMPLATE CONTENT:\n"
+            f"{grounding_text[:MAX_GROUNDING_PROMPT]}\n"
+        )
 
     delta_block = ""
     if delta_items and existing_content:
@@ -352,7 +469,7 @@ def _build_gen_prompt(
         )
 
     schema  = _FORMAT_SCHEMAS.get(output_format, _FORMAT_SCHEMAS["docx"])
-    detail  = _FORMAT_DETAIL.get(output_format, _FORMAT_DETAIL["docx"])
+    detail  = detail_override or _FORMAT_DETAIL.get(output_format, _FORMAT_DETAIL["docx"])
 
     return (
         f"You are a senior Salesforce project consultant generating a professional "
@@ -381,6 +498,7 @@ def _build_gen_prompt(
         f"- Complete and comprehensive — a junior consultant must be able to use this immediately.\n\n"
         f"JSON SCHEMA (follow exactly):\n{schema}\n\n"
         f"DETAIL REQUIREMENTS: {detail}\n\n"
+        f"{extra_blocks}"
         f"HARD RULES:\n"
         f"1. Return ONLY valid JSON. No markdown. No explanation. No backticks.\n"
         f"2. Every string: max 120 chars, ASCII only.\n"
@@ -400,7 +518,33 @@ async def generate_single_document(
     existing_content: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Agent 3: Generate one document.
+    Agent 3: Generate one document. Opens this document's slice of the run trace,
+    then delegates unchanged.
+
+    A WRAPPER, not an edit to the body. The scope has to be entered inside the
+    per-document coroutine — ContextVars copy per asyncio task, so opening it around
+    the gather in node_generate_wave would attribute all four concurrent documents in
+    a wave to whichever one set it last. Wrapping keeps that correct without
+    re-indenting 150 lines of working code, where a whitespace-only diff would have
+    hidden the real change.
+    """
+    with runlog.node_scope(node_id, version=version, is_delta=bool(delta_items)):
+        return await _generate_single_document(
+            session_id, node_id, project_ctx, generated_docs,
+            version, delta_items, existing_content,
+        )
+
+
+async def _generate_single_document(
+    session_id:   str,
+    node_id:      str,
+    project_ctx:  Dict,
+    generated_docs: Dict[str, Any],
+    version:      int = 1,
+    delta_items:  Optional[List[Dict]] = None,
+    existing_content: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
     Streams content to the SSE queue for the typewriter effect in the frontend.
     Returns a GeneratedDoc dict on success, None on failure.
     """
@@ -420,78 +564,227 @@ async def generate_single_document(
     # Get parent document contents
     parent_contents = await _get_parent_contents(node_id, generated_docs)
 
-    # Build prompt
-    prompt = _build_gen_prompt(
-        node_id=node_id,
-        node=node,
-        project_ctx=project_ctx,
-        parent_contents=parent_contents,
-        output_format=output_format,
-        grounding_text=grounding_text,
-        delta_items=delta_items,
-        existing_content=existing_content,
-        version=version,
+    schema = _FORMAT_SCHEMAS.get(output_format, _FORMAT_SCHEMAS["docx"])
+    detail = _FORMAT_DETAIL.get(output_format, _FORMAT_DETAIL["docx"])
+
+    # Replace the generic "15-40 rows per sheet" range with the reference's ACTUAL
+    # per-sheet depth where we can measure it. The flat range is what produced
+    # twelve module sheets of identical 24 rows against a reference that varies
+    # 22-28 and puts 288 rows in its primary sheet. Falls back to the range when
+    # there is no measurable reference.
+    try:
+        from authoring import reference_depth_hint
+        _hint = reference_depth_hint(grounding_path)
+        if _hint:
+            detail = detail + "\n\n" + _hint
+    except Exception:
+        pass
+
+    async def _on_chunk(delta: str) -> None:
+        await emit_event(session_id, "content_chunk", {
+            "node_id": node_id,
+            "chunk":   delta,
+        })
+
+    def _build_prompt(extra_blocks: str = "") -> str:
+        return _build_gen_prompt(
+            node_id=node_id,
+            node=node,
+            project_ctx=project_ctx,
+            parent_contents=parent_contents,
+            output_format=output_format,
+            grounding_text=grounding_text,
+            delta_items=delta_items,
+            existing_content=existing_content,
+            version=version,
+            extra_blocks=extra_blocks,
+            detail_override=detail,
+        )
+
+    # The existing generation call and 3-attempt retry, unchanged — just made callable
+    # so the quality pipeline can drive it. content_chunk still streams from here.
+    async def _stream_generate(prompt: str, conv=None) -> str:
+        # `conv` is the quality pipeline's shared Conversation. When present, generation
+        # runs as a turn in the same session as research and plan — the subprocess spawn
+        # is already paid, and the model still has the research and plan turns in
+        # history rather than a truncated text copy of them. When absent (delta path,
+        # or if the session failed to start) this falls back to an independent call,
+        # which is exactly today's behaviour.
+        for attempt in range(1, 4):
+            print(f"   📄 {node['label']} v{version} | model={model} | attempt={attempt}")
+            try:
+                if conv is not None:
+                    raw = await conv.turn(prompt, model=model, on_chunk=_on_chunk)
+                else:
+                    raw = await complete(prompt, model=model, on_chunk=_on_chunk)
+                return json.dumps(_sanitize_plan(json.loads(_clean_json(raw))))
+            except Exception as e:
+                print(f"   ⚠ Gen attempt {attempt} failed: {str(e)[:120]}")
+                if attempt == 3:
+                    raise
+        raise RuntimeError("generation exhausted retries")
+
+    # Draft production is delegated to the quality pipeline (research -> plan ->
+    # generate -> review -> bounded rework). Depth is tier-scoped; every stage fails
+    # open, so a failure anywhere inside degrades to today's single-pass behaviour.
+    # Every LLM call made for this document is tagged with this label, so what the
+    # document cost can be read off the run instead of inferred afterwards. The tag
+    # is a ContextVar, which is what makes it correct when a wave generates four
+    # documents concurrently on the same event loop.
+    usage_tag = f"{node_id}/v{version}"
+
+    # Everything resolved above is what a support investigation wants to know before
+    # it reads a single token count: which model, which format, and whether grounding
+    # actually attached. "Grounding silently did not resolve" is a real failure mode
+    # and is invisible in the output.
+    runlog.emit(
+        "node_meta",
+        label=node["label"], tier=node.get("tier"), model=model,
+        output_format=output_format, version=version,
+        grounding_resolved=bool(grounding_text),
+        grounding_chars=len(grounding_text or ""),
+        grounding_ref=os.path.basename(grounding_path) if grounding_path else "",
+        parents=sorted(parent_contents.keys())
+                if isinstance(parent_contents, dict) else None,
     )
 
-    client = anthropic.AsyncAnthropic()
-    raw    = ""
-
-    for attempt in range(1, 4):
-        print(f"   📄 {node['label']} v{version} | model={model} | attempt={attempt}")
-        raw = ""
-
-        try:
-            async with client.messages.stream(
-                model=model,
-                max_tokens=MAX_TOKS_GEN,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                chunk_buf = ""
-                async for text in stream.text_stream:
-                    raw       += text
-                    chunk_buf += text
-                    # Emit content chunks for typewriter effect (every ~80 chars)
-                    if len(chunk_buf) >= 80:
-                        await emit_event(session_id, "content_chunk", {
-                            "node_id": node_id,
-                            "chunk":   chunk_buf,
-                        })
-                        chunk_buf = ""
-                if chunk_buf:
-                    await emit_event(session_id, "content_chunk", {
-                        "node_id": node_id,
-                        "chunk":   chunk_buf,
-                    })
-
-            plan = json.loads(_clean_json(raw))
-            plan = _sanitize_plan(plan)
-            break
-
-        except Exception as e:
-            print(f"   ⚠ Gen attempt {attempt} failed: {str(e)[:120]}")
-            if attempt == 3:
-                await emit_event(session_id, "node_error", {
-                    "node_id": node_id,
-                    "error":   str(e)[:200],
-                })
-                return None
+    try:
+        with usage_scope(usage_tag):
+            draft_json = await run_quality_pipeline(
+                session_id=session_id,
+                node=node,
+                node_id=node_id,
+                version=version,
+                project_ctx=project_ctx,
+                parent_contents=parent_contents,
+                grounding_text=grounding_text,
+                schema=schema,
+                output_format=output_format,
+                detail=detail,
+                build_prompt_fn=_build_prompt,
+                stream_generate_fn=_stream_generate,
+                sanitize_fn=_sanitize_plan,
+                emit_event_fn=emit_event,
+                on_chunk=_on_chunk,
+                is_delta=bool(delta_items),
+                delta_items=delta_items,
+                existing_content=existing_content or "",
+                checkpoint_fns=None,
+            )
+        plan = json.loads(draft_json)
+    except Exception as e:
+        # A REFUSAL (usage limit, expired sign-in, billing) is not a content failure
+        # and must be reported as itself. Previously it arrived here as an opaque JSON
+        # parse error, because the limit notice had been passed down the pipeline as
+        # though it were the research pack.
+        reason = getattr(e, "reason", "") or ""
+        detail = str(e)[:200]
+        if reason:
+            print(f"   [llm] {reason}: {detail}")
+        else:
+            print(f"   Generation failed: {detail[:120]}")
+        # The full exception — type, message, traceback tail, and the LlmUnavailable
+        # reason/detail/is_retryable. The SSE event below is truncated for the UI; this
+        # is the copy the investigation actually reads.
+        runlog.record_error(e, where=f"pipeline/{node_id}")
+        await emit_event(session_id, "node_error", {
+            "node_id": node_id,
+            "error":   detail,
+            "reason":  reason,          # "" for ordinary failures
+        })
+        if reason:
+            # Stop the whole run: every later document would hit the same wall.
+            raise
+        return None
 
     # Generate file from plan
     from templates import generate as templates_generate
     file_name = _make_file_name(node_id, node["label"], output_format, version)
     out_path  = str(STORE_DIR / file_name)
 
+    # ── Authoring attempt (Section C) ─────────────────────────────────────────
+    # The JSON plan above has been researched, planned, reviewed and reworked — the
+    # content is as good as this pipeline can make it. What it cannot express is
+    # FORM: formulas, column widths, number formats, conditional fills. So before
+    # falling back to the JSON renderer, give Claude the reviewed plan plus the
+    # reference FILE and let it build the artefact directly.
+    #
+    # This never lowers the floor. The authored file must contain at least the
+    # sheets and rows the reviewed plan specifies or it is rejected, and any
+    # rejection, error or timeout drops straight through to templates_generate()
+    # below — the exact path taken today.
+    authored = False
     try:
-        templates_generate(output_format, plan, out_path, "", grounding_path=grounding_path)
-    except Exception as gen_err:
-        print(f"   ⚠ Template generation failed: {gen_err}")
-        await emit_event(session_id, "node_error", {
-            "node_id": node_id,
-            "error":   str(gen_err)[:200],
-        })
-        return None
+        import authoring
+        if authoring.is_enabled(output_format):
+            await emit_event(session_id, "qp_authoring_start", {
+                "node_id": node_id, "format": output_format,
+            })
+            authored, reason, stats = await authoring.author_document(
+                plan=plan,
+                output_format=output_format,
+                out_path=out_path,
+                node_label=node["label"],
+                grounding_path=grounding_path,
+                model=model,
+                run_id=f"{session_id}_{node_id}_v{version}",
+                emit=emit_event,
+                session_id=session_id,
+                node_id=node_id,
+            )
+            if authored:
+                print(f"   [authoring] {node['label']}: {stats.get('containers')} sheets, "
+                      f"{stats.get('rows')} rows, {stats.get('formulas')} formulas, "
+                      f"{stats.get('colours')} colours in {stats.get('seconds')}s")
+            else:
+                print(f"   [authoring] declined ({reason}); using template renderer")
+            await emit_event(session_id, "qp_authoring_done", {
+                "node_id": node_id, "accepted": authored,
+                "reason": reason, "stats": stats,
+            })
+            # Whether Claude built the file directly or we fell back to the JSON
+            # renderer is the single biggest determinant of output fidelity, and
+            # today it is only visible in a console line nobody keeps.
+            runlog.emit("authoring", accepted=authored,
+                        reason=str(reason)[:200], stats=stats)
+    except Exception as author_err:
+        # Authoring must never be able to fail a generation that would have worked.
+        print(f"   [authoring] unavailable: {str(author_err)[:120]}")
+        runlog.record_error(author_err, where=f"authoring/{node_id}")
+        authored = False
+
+    if not authored:
+        try:
+            templates_generate(output_format, plan, out_path, "", grounding_path=grounding_path)
+        except Exception as gen_err:
+            print(f"   ⚠ Template generation failed: {gen_err}")
+            await emit_event(session_id, "node_error", {
+                "node_id": node_id,
+                "error":   str(gen_err)[:200],
+            })
+            return None
 
     size_kb = round(os.path.getsize(out_path) / 1024, 1)
+
+    # What this document actually cost. Reported per stage so an expensive stage is
+    # identifiable rather than a single total that has to be bisected by hand.
+    try:
+        u = usage_summary(usage_tag)
+        if u.get("calls"):
+            print(f"   [usage] {node['label']} v{version}: {u['calls']} calls | "
+                  f"in={u['billable_input']:,} out={u['output']:,} | "
+                  f"cache hit {u['cache_hit_pct']}% | ${u['cost_usd']} | {u['seconds']}s")
+            for stage, s in sorted(u.get("by_stage", {}).items(),
+                                   key=lambda kv: -kv[1]["billable_input"])[:6]:
+                print(f"            {stage:36} {s['calls']:>2} calls  "
+                      f"in={s['billable_input']:>8,}  out={s['output']:>7,}  ${s['cost_usd']}")
+            await emit_event(session_id, "qp_usage", {"node_id": node_id, "usage": u})
+            runlog.emit("usage", usage=u)
+    except Exception:
+        pass
+
+    runlog.emit("artifact", file_name=file_name, path=out_path,
+                size_kb=size_kb, output_format=output_format, authored=authored)
 
     # Extract content summary for DB storage and downstream grounding
     try:
@@ -557,6 +850,24 @@ async def node_extract_context(state: CascadeState) -> Dict:
         "client_name":  ctx.get("client_name", ""),
         "scope":        ctx.get("scope_summary", "")[:200],
     })
+
+    # ── Cascade-wide terminology contract, built ONCE and used by every document ──
+    # The documents in a cascade are generated independently and in parallel, so
+    # without a shared vocabulary they drift apart — one calls it the "Integration
+    # Layer", another "middleware tier" — and each passes its own consistency check.
+    # One extra call per cascade (not per document) fixes that for all of them.
+    # Wrapped in try/except: if it fails, generation proceeds exactly as before.
+    try:
+        from quality.glossary import build_cascade_glossary
+        await build_cascade_glossary(
+            session_id=session_id,
+            project_ctx=ctx,
+            source_text=state.get("input_text", "") or "",
+            emit_event_fn=emit_event,
+        )
+    except Exception as e:
+        print(f"   ⚠ Cascade glossary skipped: {str(e)[:120]}")
+
     return {"project_context": ctx}
 
 
@@ -612,24 +923,31 @@ async def node_generate_wave(state: CascadeState) -> Dict:
     for nid in current_wave:
         await emit_event(session_id, "node_queued", {"node_id": nid, "wave": wave_num})
 
-    # Generate all nodes in this wave in parallel
+    # Generate all nodes in this wave in parallel, bounded by MAX_PARALLEL_DOCS.
     async def _gen_one(nid: str):
-        await emit_event(session_id, "node_generating", {"node_id": nid})
-        result = await generate_single_document(
-            session_id=session_id,
-            node_id=nid,
-            project_ctx=project_ctx,
-            generated_docs=generated,
-            version=1,
-        )
-        return nid, result
+        async with _doc_semaphore():
+            await emit_event(session_id, "node_generating", {"node_id": nid})
+            result = await generate_single_document(
+                session_id=session_id,
+                node_id=nid,
+                project_ctx=project_ctx,
+                generated_docs=generated,
+                version=1,
+            )
+            return nid, result
 
     tasks   = [asyncio.create_task(_gen_one(nid)) for nid in current_wave]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for item in results:
         if isinstance(item, Exception):
-            print(f"   ⚠ Wave {wave_num} task error: {item}")
+            # A refusal (usage limit, sign-in, billing) applies to every remaining
+            # document too, so it propagates and the run is marked failed with the
+            # real reason. return_exceptions=True would otherwise bury it here and
+            # the cascade would report success having produced nothing.
+            if getattr(item, "reason", ""):
+                raise item
+            print(f"   Wave {wave_num} task error: {item}")
             continue
         nid, doc = item
         if doc:
@@ -697,7 +1015,8 @@ async def node_apply_delta_wave(state: CascadeState) -> Dict:
         if not node:
             return nid, None
 
-        # Check finalised status and user choice
+        # Same ceiling as the new-generation path (see MAX_PARALLEL_DOCS). Acquired
+        # after the cheap early-outs so a skipped node never holds a slot.
         from db import is_cascade_doc_finalised
         is_final = await is_cascade_doc_finalised(session_id, nid)
         if is_final and not fin_choices.get(nid, False):
@@ -716,29 +1035,34 @@ async def node_apply_delta_wave(state: CascadeState) -> Dict:
                 if old_doc:
                     existing_content = old_doc.get("content_summary", "")[:4000]
 
-        await emit_event(session_id, "node_updating", {
-            "node_id":      nid,
-            "from_version": cur_ver,
-            "to_version":   new_ver,
-        })
+        async with _doc_semaphore():
+            await emit_event(session_id, "node_updating", {
+                "node_id":      nid,
+                "from_version": cur_ver,
+                "to_version":   new_ver,
+            })
 
-        result = await generate_single_document(
-            session_id=session_id,
-            node_id=nid,
-            project_ctx=project_ctx,
-            generated_docs=generated,
-            version=new_ver,
-            delta_items=delta_items,
-            existing_content=existing_content,
-        )
-        return nid, result
+            result = await generate_single_document(
+                session_id=session_id,
+                node_id=nid,
+                project_ctx=project_ctx,
+                generated_docs=generated,
+                version=new_ver,
+                delta_items=delta_items,
+                existing_content=existing_content,
+            )
+            return nid, result
 
     tasks   = [asyncio.create_task(_apply_one(nid)) for nid in current_wave]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for item in results:
         if isinstance(item, Exception):
-            print(f"   ⚠ Delta wave {wave_num} error: {item}")
+            # Same rule as the new-generation wave: a refusal blocks every remaining
+            # document, so surface it rather than burying it in return_exceptions.
+            if getattr(item, "reason", ""):
+                raise item
+            print(f"   Delta wave {wave_num} error: {item}")
             continue
         nid, doc = item
         if doc:
@@ -868,7 +1192,7 @@ async def run_new_cascade(
             "file_id":        "",
             "file_name":      input_file_name,
             "output_format":  "",
-            "content_summary": input_text[:3000],
+            "content_summary": input_text[:MAX_SOURCE_CHARS],
             "version":        0,
             "model_used":     "",
             "is_finalised":   False,
@@ -879,6 +1203,22 @@ async def run_new_cascade(
 
     config = {"configurable": {"thread_id": session_id}}
 
+    # Open the durable trace for this run. Started here rather than inside the graph
+    # so that a failure in graph construction is still captured, and closed in the
+    # finally below so an interrupted run is recorded as interrupted rather than
+    # silently absent. See runlog.py.
+    runlog.start_run(
+        "cascade",
+        session_id=session_id,
+        mode="new",
+        username=username,
+        input_file=input_file_name,
+        input_chars=len(input_text or ""),
+        selected_nodes=selected_nodes,
+        total_docs=len(selected_nodes),
+    )
+    await runlog.emit_env()
+
     try:
         await _new_gen_graph.ainvoke(initial_state, config=config)
         await update_cascade_session_status(session_id, "complete")
@@ -886,10 +1226,13 @@ async def run_new_cascade(
             "session_id": session_id,
             "docs_generated": len(selected_nodes),
         })
+        runlog.finish_run("ok", docs_generated=len(selected_nodes))
     except Exception as e:
         print(f"   ⚠ Cascade error: {e}")
+        runlog.record_error(e, where="run_new_cascade")
         await update_cascade_session_status(session_id, "failed", error=str(e)[:500])
         await emit_event(session_id, "session_error", {"error": str(e)[:300]})
+        runlog.finish_run("failed", error=str(e)[:300])
     finally:
         signal_sse_done(session_id)
 
@@ -963,6 +1306,20 @@ async def run_delta_cascade(
 
     config = {"configurable": {"thread_id": session_id}}
 
+    runlog.start_run(
+        "delta",
+        session_id=session_id,
+        mode="delta",
+        username=username,
+        source_session=source_session_id,
+        delta_node=delta_node_id,
+        input_file=f"delta_{delta_node_id}",
+        selected_nodes=user_delta_nodes,
+        total_docs=len(user_delta_nodes),
+        delta_summary=str(delta_summary)[:400],
+    )
+    await runlog.emit_env()
+
     try:
         await _delta_graph.ainvoke(state, config=config)
         await update_cascade_session_status(session_id, "complete")
@@ -970,9 +1327,12 @@ async def run_delta_cascade(
             "session_id":    session_id,
             "updated_nodes": user_delta_nodes,
         })
+        runlog.finish_run("ok", docs_generated=len(user_delta_nodes))
     except Exception as e:
         print(f"   ⚠ Delta cascade error: {e}")
+        runlog.record_error(e, where="run_delta_cascade")
         await update_cascade_session_status(session_id, "failed", error=str(e)[:500])
         await emit_event(session_id, "session_error", {"error": str(e)[:300]})
+        runlog.finish_run("failed", error=str(e)[:300])
     finally:
         signal_sse_done(session_id)

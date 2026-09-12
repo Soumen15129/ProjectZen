@@ -1886,6 +1886,80 @@ input[type="file"] { display: none; }
 }
 .grnd-tooltip strong { font-weight:700; font-size:12.5px; }
 .grnd-tooltip.visible { opacity:1; }
+
+/* ═══ LIVE STAGE PROGRESS ═══════════════════════════════════════════════
+   A single document takes 25-50 minutes. Everything below exists to make that
+   wait legible: what is happening, what is done, what is left. Purely a view
+   over SSE events the backend already emits — it starts nothing and blocks
+   nothing. */
+.pz-live{
+  margin-top:14px; padding:16px 18px;
+  background:linear-gradient(180deg,rgba(30,41,59,.55),rgba(15,23,42,.35));
+  border:1px solid #27354a; border-radius:12px;
+}
+.pz-live-head{ display:flex; align-items:center; gap:10px; margin-bottom:11px; }
+.pz-live-spin{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:15px; color:var(--acc-l); width:15px; flex:0 0 15px; line-height:1;
+}
+.pz-live-title{ font-size:13.5px; font-weight:600; color:var(--text); flex:1; }
+.pz-live-pct{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:16px; font-weight:700; color:var(--acc-l);
+  font-variant-numeric:tabular-nums;
+}
+.pz-live-barbg{
+  height:8px; background:#1a2537; border-radius:99px; overflow:hidden;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.35);
+}
+.pz-live-bar{
+  height:100%; border-radius:99px; width:0%;
+  background:linear-gradient(90deg,#3b82f6,#22d3ee);
+  transition:width .6s cubic-bezier(.4,0,.2,1);
+  position:relative; overflow:hidden;
+}
+/* Movement while a stage is mid-flight, so the bar never looks frozen even when
+   it is legitimately not advancing. */
+.pz-live-bar::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);
+  animation:pzShimmer 1.9s linear infinite;
+}
+.pz-live.pz-done .pz-live-bar::after{ animation:none; }
+@keyframes pzShimmer{ from{transform:translateX(-100%)} to{transform:translateX(200%)} }
+
+.pz-live-sub{
+  display:flex; justify-content:space-between; gap:12px;
+  margin-top:8px; font-size:11.5px; color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.pz-live-sub b{ color:var(--muted2); font-weight:500; }
+
+.pz-stages{ list-style:none; margin:13px 0 0; padding:0; }
+.pz-stage{
+  display:flex; align-items:center; gap:9px;
+  padding:4px 0; font-size:12px; color:var(--muted2);
+  border-top:1px solid rgba(39,53,74,.5);
+}
+.pz-stage:first-child{ border-top:none; }
+.pz-stage-ico{
+  width:14px; flex:0 0 14px; text-align:center;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+}
+.pz-stage-name{ flex:1; }
+.pz-stage-meta{ font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.pz-stage.is-active{ color:var(--text); font-weight:600; }
+.pz-stage.is-active .pz-stage-ico{ color:var(--acc-l); }
+.pz-stage.is-done .pz-stage-ico{ color:#22c55e; }
+.pz-stage.is-skip{ opacity:.45; }
+.pz-stage.is-fail .pz-stage-ico{ color:#ef4444; }
+.pz-stage.is-pending{ opacity:.5; }
+
+/* Respect users who have asked the OS for less motion. */
+@media (prefers-reduced-motion:reduce){
+  .pz-live-bar::after{ animation:none; }
+  .pz-live-bar{ transition:none; }
+}
 </style>
 </head>
 <body>
@@ -2053,7 +2127,7 @@ input[type="file"] { display: none; }
 
     <div class="topbar-right">
       <div class="server-row-top">
-        <input type="text" class="server-inp" id="serverUrl" value="http://localhost:8000" />
+        <input type="text" class="server-inp" id="serverUrl" value="http://localhost:8001" />
         <button class="topbar-btn" onclick="pingServer()">Ping</button>
         <div class="sdot" id="sdot"></div>
         <span class="slabel" id="slabel">—</span>
@@ -2606,6 +2680,26 @@ Examples:
           </div>
           <div class="casc-progress-bar-bg">
             <div class="casc-progress-bar" id="cascProgressBar" style="width:0%"></div>
+          </div>
+
+        <!-- ─── LIVE STAGE PROGRESS ───────────────────────────────────
+             Weighted by measured stage durations, not equal steps. The bar
+             above tracks DOCUMENTS across a cascade; this one tracks the
+             stages inside the document being generated right now. -->
+        <div class="pz-live" id="pzLive" style="display:none">
+          <div class="pz-live-head">
+            <span class="pz-live-spin" id="pzSpin">&#10283;</span>
+            <span class="pz-live-title" id="pzTitle">Starting&hellip;</span>
+            <span class="pz-live-pct" id="pzPct">0%</span>
+          </div>
+          <div class="pz-live-barbg">
+            <div class="pz-live-bar" id="pzBar" style="width:0%"></div>
+          </div>
+          <div class="pz-live-sub">
+            <span id="pzSub"></span>
+            <span id="pzTimes"></span>
+          </div>
+          <ol class="pz-stages" id="pzStages"></ol>
           </div>
         </div>
 
@@ -4600,7 +4694,386 @@ function cascConnectSSE(sessionId) {
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LIVE STAGE PROGRESS
+   ══════════════════════════════════════════════════════════════════════════
+   Self-contained: reads SSE events, writes to #pzLive, touches nothing else.
+   pzOnEvent() is called from the top of cascHandleEvent and never throws, so a
+   fault here cannot affect generation or any existing handler.
+
+   WHY WEIGHTED, NOT EQUAL STEPS
+   Nine stages at 11% each would sit at 78% for the ~25 minutes authoring takes —
+   worse than no bar, because it breaks its own promise at the exact moment the
+   user is most anxious. Weights below come from measured runs:
+     generate  ~18K output tokens, the slow half of the pipeline
+     authoring 607s for a 3-sheet fixture; budget 420s + 90s/sheet
+     rework    28.8s/round after patching
+     review    ~40-60s, reviewers forked in parallel
+   Replace them with medians from /health/llm telemetry once enough runs exist. */
+var PZ_STAGES = [
+  { key:'context',   label:'Extracting project context',    w:2,  eta:35   },
+  { key:'glossary',  label:'Building terminology contract',  w:1,  eta:25   },
+  { key:'research',  label:'Researching the deliverable',    w:8,  eta:190  },
+  { key:'plan',      label:'Planning sections',              w:7,  eta:165  },
+  { key:'generate',  label:'Generating the draft',           w:26, eta:620  },
+  { key:'review',    label:'Quality review',                 w:5,  eta:80   },
+  { key:'rework',    label:'Applying corrections',           w:4,  eta:45   },
+  { key:'authoring', label:'Authoring the file',             w:45, eta:1100 },
+  { key:'save',      label:'Saving & versioning',            w:2,  eta:8    }
+];
+var PZ_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+
+var pz = null, pzTimer = null, pzFrame = 0;
+
+/* A refusal carries `reason` from the backend. Rendering the raw exception text
+   ("Expecting value: line 1 column 1") told the user nothing; the whole point of
+   classifying it upstream is to say what actually happened and what to do. */
+function pzReasonText(reason, detail){
+  switch(reason){
+    case 'rate_limit':
+      return 'Claude usage limit reached for this account. Your work is saved — '
+           + 'try again after your limit resets.';
+    case 'authentication_failed':
+      return 'Claude sign-in expired. Close ProjectZen and start it again to sign in.';
+    case 'billing_error':
+      return 'This Claude account cannot make requests. Contact your administrator.';
+    case 'server_error':
+      return 'Claude had a server-side problem. Please try again shortly.';
+    case 'invalid_request':
+      return 'Claude rejected the request. ' + (detail || '');
+    default:
+      return detail || 'Generation failed.';
+  }
+}
+
+var _cascErrored = false, _cascErrorText = '';
+
+
+function pzReset(nodeLabel){
+  pz = {
+    label: nodeLabel || 'document',
+    t0: Date.now(),
+    stageT0: Date.now(),
+    cur: null,
+    shown: 0,                 // monotonic: the bar never moves backwards
+    errored: false,
+    st: {},                   // key -> {state, t0, secs, meta}
+    sub: '',
+    finished: false
+  };
+  PZ_STAGES.forEach(function(s){ pz.st[s.key] = { state:'pending', secs:0, meta:'' }; });
+  var el = document.getElementById('pzLive');
+  if (el) { el.style.display = 'block'; el.classList.remove('pz-done'); }
+  if (!pzTimer) pzTimer = setInterval(pzTick, 120);
+  pzRender();
+}
+
+/* qp_depth arrives first and states which stages this tier actually runs, so the
+   checklist is correct from the start rather than guessing and correcting later. */
+function pzApplyDepth(d){
+  if (!pz) return;
+  var prof = (d && d.profile) || 'standard';
+  if (prof === 'minimal') { pz.st.research.state = 'skip'; pz.st.plan.state = 'skip'; }
+  else if (prof === 'light') { pz.st.research.state = 'skip'; }
+  var revs = (d && d.reviewers) || [];
+  pz.reviewers = revs.slice();
+  if (!revs.length) pz.st.review.meta = 'structure only';
+  if (d && d.max_rework === 0) pz.st.rework.state = 'skip';
+  pzRender();
+}
+
+function pzActiveTotal(){
+  return PZ_STAGES.reduce(function(a,s){
+    return a + (pz.st[s.key].state === 'skip' ? 0 : s.w);
+  }, 0) || 100;
+}
+
+function pzRawPct(){
+  var total = pzActiveTotal(), acc = 0;
+  /* Sum EVERY completed stage, not just those before the active one. An earlier
+     version stopped at the first incomplete stage, so a single missing event —
+     one path that never emits context_ready, say — pinned the bar near 0% for the
+     whole run while everything downstream sailed past. Losing one stage's weight
+     is a far smaller sin than a frozen bar. */
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    if (st.state === 'done') { acc += s.w; }
+    else if (st.state === 'active'){
+      /* Sub-progress inside a stage is unknowable, so approach the next
+         checkpoint asymptotically: always moving, never overshooting. */
+      var t = (Date.now() - st.t0) / 1000;
+      acc += s.w * Math.min(1 - Math.exp(-t / Math.max(5, s.eta)), 0.97);
+    }
+  }
+  return Math.min(100 * acc / total, 99);   // 100% only when the file exists
+}
+
+/* Remaining time, from per-stage expectations calibrated by what this run has
+   actually done so far.
+
+   The obvious formula — scale total by (elapsed / completed weight) — produces an
+   estimate that GROWS while you wait: during a long stage the elapsed time climbs
+   while completed weight does not, so "24 min left" becomes "58 min left" without
+   anything going wrong. An estimate that recedes is worse than none.
+
+   So: each remaining stage contributes its own expected duration, the active stage
+   contributes only what is LEFT of its expectation, and the seeds are corrected by
+   a calibration factor measured from the stages this run has already finished. */
+function pzEta(){
+  var doneSecs = 0, doneEta = 0;
+  PZ_STAGES.forEach(function(s){
+    var st = pz.st[s.key];
+    if (st.state === 'done' && st.secs) { doneSecs += st.secs; doneEta += s.eta; }
+  });
+  if (doneEta < 60) return '';               // too little evidence to be honest yet
+
+  // How much faster or slower this machine/plan runs than the seeds assume.
+  var cal = Math.min(2.5, Math.max(0.5, doneSecs / doneEta));
+
+  var remain = 0;
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    if (st.state === 'done' || st.state === 'skip') continue;
+    var expect = s.eta * cal;
+    if (st.state === 'active'){
+      var spent = (Date.now() - st.t0) / 1000;
+      // Never claim a stage is about to end just because it overran; keep a floor.
+      remain += Math.max(expect - spent, expect * 0.15);
+    } else {
+      remain += expect;
+    }
+  }
+  if (remain < 45) return 'almost done';
+  /* A RANGE, never a point estimate. Users hold a point estimate to the second,
+     and stage durations vary far too much to earn that. */
+  var lo = Math.max(1, Math.round(remain * 0.8 / 60));
+  var hi = Math.max(lo + 1, Math.round(remain * 1.4 / 60));
+  return '≈ ' + lo + '–' + hi + ' min left';
+}
+
+function pzFmt(s){
+  s = Math.max(0, Math.round(s));
+  return Math.floor(s/60) + ':' + ('0' + (s%60)).slice(-2);
+}
+
+function pzTick(){
+  if (!pz) return;
+  pzFrame = (pzFrame + 1) % PZ_FRAMES.length;
+  var sp = document.getElementById('pzSpin');
+  if (sp) sp.textContent = pz.finished ? (pz.errored ? '✗' : '✓') : PZ_FRAMES[pzFrame];
+  if (!pz.finished) pzRender();
+}
+
+function pzRender(){
+  if (!pz) return;
+  // A failed run keeps the progress it genuinely reached; only a real completion
+  // is allowed to show 100%.
+  var pct = (pz.finished && !pz.errored) ? 100 : Math.max(pz.shown, pzRawPct());
+  pz.shown = pct;
+
+  var bar = document.getElementById('pzBar');
+  var pctEl = document.getElementById('pzPct');
+  if (bar)   bar.style.width = pct.toFixed(1) + '%';
+  if (pctEl) pctEl.textContent = Math.floor(pct) + '%';
+
+  /* Set here as well as in the tick: the timer is stopped on completion, so a
+     final ✓ / ✗ would otherwise never be painted. */
+  var sp0 = document.getElementById('pzSpin');
+  if (sp0 && pz.finished) sp0.textContent = pz.errored ? '✗' : '✓';
+
+  var cur = pz.cur ? PZ_STAGES.filter(function(s){ return s.key === pz.cur; })[0] : null;
+  var t = document.getElementById('pzTitle');
+  if (t) t.textContent = pz.finished
+    ? (pz.label + (pz.errored ? ' — failed' : ' — complete'))
+    : (cur ? cur.label : 'Starting…');
+
+  var sub = document.getElementById('pzSub');
+  if (sub) sub.innerHTML = pz.sub ? '<b>' + pzEsc(pz.sub) + '</b>' : '';
+
+  var times = document.getElementById('pzTimes');
+  if (times) times.textContent = pzFmt((Date.now() - pz.t0)/1000) + ' elapsed'
+    + (pz.finished ? '' : (pzEta() ? '  ·  ' + pzEta() : ''));
+
+  var ol = document.getElementById('pzStages');
+  if (!ol) return;
+  var html = '';
+  for (var i=0;i<PZ_STAGES.length;i++){
+    var s = PZ_STAGES[i], st = pz.st[s.key];
+    var cls = 'pz-stage', ico = '·';
+    if (st.state === 'done')        { cls += ' is-done';    ico = '✓'; }
+    else if (st.state === 'active') { cls += ' is-active';  ico = PZ_FRAMES[pzFrame]; }
+    else if (st.state === 'skip')   { cls += ' is-skip';    ico = '–'; }
+    else if (st.state === 'fail')   { cls += ' is-fail';    ico = '✗'; }
+    else                            { cls += ' is-pending'; }
+    var meta = st.meta || '';
+    if (st.secs) meta = (meta ? meta + '  ·  ' : '') + pzFmt(st.secs);
+    html += '<li class="' + cls + '">'
+         +  '<span class="pz-stage-ico">' + ico + '</span>'
+         +  '<span class="pz-stage-name">' + pzEsc(s.label) + '</span>'
+         +  '<span class="pz-stage-meta">' + pzEsc(meta) + '</span></li>';
+  }
+  ol.innerHTML = html;
+}
+
+function pzEsc(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function pzStart(key, sub){
+  if (!pz || !pz.st[key]) return;
+  if (pz.cur && pz.st[pz.cur] && pz.st[pz.cur].state === 'active') pzDone(pz.cur);
+  pz.st[key].state = 'active';
+  pz.st[key].t0 = Date.now();
+  pz.cur = key;
+  pz.sub = sub || '';
+  pzRender();
+}
+
+function pzDone(key, meta){
+  if (!pz || !pz.st[key]) return;
+  var st = pz.st[key];
+  if (st.t0) st.secs = (Date.now() - st.t0) / 1000;
+  st.state = 'done';
+  if (meta) st.meta = meta;
+  if (pz.cur === key) { pz.cur = null; pz.sub = ''; }
+  pzRender();
+}
+
+/* Single entry point, called from cascHandleEvent. Never throws. */
+function pzOnEvent(event, data){
+  try {
+    data = data || {};
+    switch (event) {
+      case 'session_start':
+        _cascErrored = false; _cascErrorText = '';  pzReset(''); break;
+      case 'node_generating':
+        pzReset((_cascGraphData && _cascGraphData.nodes.filter(function(n){
+          return n.id === data.node_id; })[0] || {}).label || data.node_id);
+        pzStart('context');
+        break;
+      case 'context_ready':      pzDone('context', data.project_name || ''); break;
+      case 'qp_depth':           pzApplyDepth(data); break;
+      case 'qp_glossary_start':  pzStart('glossary'); break;
+      case 'qp_glossary_done':   pzDone('glossary'); break;
+      case 'qp_research_start':  pzStart('research'); break;
+      case 'qp_research_done':
+        pzDone('research', data.chars ? (data.chars.toLocaleString() + ' chars') : '');
+        break;
+      case 'qp_plan_start':      pzStart('plan'); break;
+      case 'qp_plan_done':
+        pzDone('plan', data.chars ? (data.chars.toLocaleString() + ' chars') : '');
+        pzStart('generate');       // generation begins straight after the plan
+        break;
+      case 'content_chunk':
+        /* Also the trigger that STARTS the generate stage. On minimal-depth tiers
+           (T3/T4) there is no research or plan, so qp_plan_done never fires and
+           generation would otherwise never be marked as begun. The first streamed
+           chunk is unambiguous evidence it is under way. */
+        if (pz && pz.cur !== 'generate' && pz.st.generate.state !== 'done'){
+          pzStart('generate');
+        }
+        if (pz && pz.cur === 'generate'){
+          pz.genChars = (pz.genChars || 0) + ((data.chunk || '').length);
+          pz.sub = 'streaming — ' + pz.genChars.toLocaleString() + ' chars';
+        }
+        break;
+      case 'qp_review_start':
+        if (pz && pz.st.generate.state === 'active') pzDone('generate',
+          pz.genChars ? (pz.genChars.toLocaleString() + ' chars') : '');
+        pzStart('review', (pz && pz.reviewers && pz.reviewers.length)
+          ? pz.reviewers.join(', ') : 'structure checks');
+        break;
+      case 'qp_reviewer':
+        if (pz && pz.cur === 'review'){
+          pz.revState = pz.revState || {};
+          pz.revState[data.reviewer] = data.state;
+          var parts = Object.keys(pz.revState).map(function(k){
+            return k + (pz.revState[k] === 'done' ? ' ✓' : '…'); });
+          pz.sub = parts.join('   ');
+        }
+        break;
+      case 'qp_review_done':
+        pzDone('review', (data.findings || 0) + ' findings → ' + (data.decision || ''));
+        break;
+      case 'qp_rework_start':
+        pzStart('rework', 'round ' + (data.round || 1));
+        break;
+      case 'qp_rework_done':
+        pzDone('rework', 'round ' + (data.round || 1));
+        break;
+      case 'qp_authoring_start':
+        pzStart('authoring', 'starting…');
+        break;
+      case 'qp_authoring_step':
+        /* The heartbeat that removes the long silence. */
+        if (pz) { pz.sub = 'step ' + (data.step || 0) + ' — ' + (data.detail || ''); pzRender(); }
+        break;
+      case 'qp_authoring_done':
+        if (data.accepted){
+          var st = data.stats || {};
+          pzDone('authoring', (st.formulas || 0) + ' formulas · '
+                 + (st.rows || 0) + ' rows');
+        } else {
+          if (pz && pz.st.authoring) {
+            pz.st.authoring.state = 'skip';
+            pz.st.authoring.meta = 'standard renderer';
+            pz.cur = null;
+          }
+          pzRender();
+        }
+        pzStart('save');
+        break;
+      case 'node_complete':
+        pzDone('save', (data.size_kb ? data.size_kb + ' KB' : ''));
+        break;
+      case 'session_complete':
+        if (pz){
+          PZ_STAGES.forEach(function(s){
+            if (pz.st[s.key].state === 'active') pzDone(s.key);
+          });
+          /* Only a genuine completion reaches 100%. Forcing it here is what
+             produced "Project Plan - failed" sitting at 100%. */
+          pz.finished = true;
+          if (!pz.errored) { pz.shown = 100; pz.sub = ''; }
+          var el = document.getElementById('pzLive');
+          if (el) el.classList.add('pz-done');
+          pzRender();
+          if (pzTimer) { clearInterval(pzTimer); pzTimer = null; }
+        }
+        break;
+      case 'session_error':
+      case 'node_error':
+        if (pz){
+          if (pz.cur) pz.st[pz.cur].state = 'fail';
+          pz.errored = true; pz.finished = true;
+          pz.sub = pzReasonText(data && data.reason, data && data.error).slice(0,160);
+          pz.failReason = (data && data.reason) || '';
+          pzRender();
+        }
+        if (pzTimer) { clearInterval(pzTimer); pzTimer = null; }
+        break;
+    }
+  } catch (e) {
+    /* Progress display must never interfere with generation. */
+    if (window.console) console.warn('pz progress:', e);
+  }
+}
+
+/* The backend now picks a free port rather than always using 8001, and an
+   installed build serves this page from that same server. So when we are on
+   http(s) the correct address is simply where this page came from; the 8001
+   default only applies when the file is opened directly off disk. */
+(function pzServerDefault(){
+  try {
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    var el = document.getElementById('serverUrl');
+    if (el) el.value = location.origin;
+  } catch (e) {}
+})();
+
 function cascHandleEvent(event, data) {
+  pzOnEvent(event, data);
   switch(event) {
 
     case 'session_start':
@@ -4640,6 +5113,34 @@ function cascHandleEvent(event, data) {
       document.getElementById('cascPreviewTitle').textContent = nodeInfo?.label || data.node_id;
       document.getElementById('cascPreviewMeta').textContent  = 'Generating…';
       document.getElementById('cascPreviewBody').textContent  = '';
+      break;
+
+    case 'qp_rework_start':
+      // Quality pipeline is about to stream a CORRECTED draft. content_chunk appends,
+      // so clear first or the corrected document is concatenated onto the one already
+      // on screen. Same fix as documentation_governance.html.
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label||data.node_id)){
+        document.getElementById('cascPreviewBody').textContent = '';
+      }
+      break;
+
+
+    case 'qp_authoring_start':
+      // Claude is building the real file (formulas, widths, formats) rather than
+      // emitting JSON. Nothing streams during this, so say so explicitly — an
+      // unexplained multi-minute gap here reads as a hang.
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label || data.node_id)){
+        document.getElementById('cascPreviewMeta').textContent = 'Authoring the ' + (data.format||'') + ' file…';
+      }
+      break;
+
+    case 'qp_authoring_done':
+      if(document.getElementById('cascPreviewTitle').textContent === (_cascGraphData?.nodes.find(n=>n.id===data.node_id)?.label || data.node_id)){
+        const st = data.stats || {};
+        document.getElementById('cascPreviewMeta').textContent = data.accepted
+          ? `Authored: ${st.containers||0} sheets, ${st.rows||0} rows, ${st.formulas||0} formulas (${st.seconds||0}s)`
+          : `Standard renderer used (${data.reason||''})`;
+      }
       break;
 
     case 'content_chunk':
@@ -4682,7 +5183,13 @@ function cascHandleEvent(event, data) {
 
     case 'session_complete':
     case 'delta_complete':
-      updateProgress('All documents generated!', _cascTotalDocs, _cascTotalDocs);
+      if (_cascErrored) {
+        /* This fired unconditionally before, so a run that produced NOTHING still
+           read "All documents generated! 1/1" above a panel saying "failed". */
+        updateProgress('Stopped: ' + _cascErrorText, _cascDoneCount, _cascTotalDocs);
+      } else {
+        updateProgress('All documents generated!', _cascTotalDocs, _cascTotalDocs);
+      }
       if(_cascCyInstance) _cascCyInstance.fit(_cascCyInstance.elements(), 40);
       cascShowLibrary();
       showToast(`✓ Cascade complete — ${data.docs_generated||_cascDoneCount} documents generated`);
