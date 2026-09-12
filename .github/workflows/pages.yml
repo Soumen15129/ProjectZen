@@ -1,11 +1,32 @@
-name: Deploy Frontend to GitHub Pages
+# GitHub Pages publishing — AUTO-DEPLOY ON PUSH IS DISABLED ON PURPOSE.
+#
+# Why
+# ---
+# Two reasons, either of which is sufficient:
+#
+#   1. The team runs ProjectZen from the desktop via Start-ProjectZen.bat, with
+#      Claude calls going through each developer's own `claude` CLI seat. There
+#      is no hosted deployment to publish a frontend for.
+#
+#   2. This repository is private. Pages on a private repo requires a paid
+#      GitHub plan, so the job fails on every push regardless.
+#
+# Publishing frontend/ would also put the UI on a public URL, which is the wrong
+# default for a repo holding Accenture delivery methodology.
+#
+# Nothing is deleted. To publish again, restore the `push:` trigger below.
+
+name: Deploy Frontend to GitHub Pages (manual only)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
   workflow_dispatch:
+
+  # Restore only if a hosted frontend is actually wanted and Pages is available
+  # on the repo's plan:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "frontend/**"
 
 permissions:
   contents: read
