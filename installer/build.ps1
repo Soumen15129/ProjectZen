@@ -129,13 +129,39 @@ seed    = payload / "middleware" / "seed"
 if not db_path.exists():
     print("NO-DB"); raise SystemExit
 db = sqlite3.connect(db_path); db.row_factory = sqlite3.Row
-data = {t: [dict(r) for r in db.execute(f"SELECT * FROM {t}")]
-        for t in ("grounding_docs", "doc_format_config")}
+# adhoc_template_config ships alongside grounding_docs. It is the SECOND grounding
+# store — the one the adhoc portals and the Admin > Template Config screen read — and
+# it was the whole reason a fresh install showed no reference or system prompt for
+# Governance Matrix, Weekly Status Report, Test Script and the rest: the files were
+# on disk but this table was empty, so nothing resolved them. Its rows carry the
+# system prompts too, so shipping it restores both the reference AND the house-style
+# prompt an admin configured. Table may not exist on an older packager DB, hence the
+# guarded read.
+tables = ["grounding_docs", "doc_format_config"]
+try:
+    db.execute("SELECT 1 FROM adhoc_template_config LIMIT 1")
+    tables.append("adhoc_template_config")
+except Exception:
+    pass
+data = {t: [dict(r) for r in db.execute(f"SELECT * FROM {t}")] for t in tables}
 src = root / "storage" / "document_store" / "refs"
 n = 0; total = 0
-for row in data["grounding_docs"]:
-    for p in src.glob(row["ref_id"] + "*"):
-        shutil.copy2(p, seed / "refs" / p.name); n += 1; total += p.stat().st_size
+# Both stores reference files by ref_id under the same refs dir. Dedup by filename so
+# a ref_id shared across the two tables is copied and scrubbed once, not twice.
+seen = set()
+def _copy_refs(rows):
+    global n, total
+    for row in rows:
+        rid = (row.get("ref_id") or "").strip()
+        if not rid:
+            continue
+        for p in src.glob(rid + "*"):
+            if p.name in seen:
+                continue
+            shutil.copy2(p, seed / "refs" / p.name)
+            seen.add(p.name); n += 1; total += p.stat().st_size
+_copy_refs(data["grounding_docs"])
+_copy_refs(data.get("adhoc_template_config", []))
 # PII-scrub every reference AS IT IS PACKAGED.
 #
 # The seed is rebuilt here from the LIVE storage refs, which silently overwrote a
@@ -157,7 +183,9 @@ except Exception as exc:
     print(f"SCRUB-FAILED {type(exc).__name__}: {exc}")
 
 (seed / "seed.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
-print(f"{len(data['grounding_docs'])} refs, {len(data['doc_format_config'])} format rows, "
+print(f"{len(data['grounding_docs'])} grounding rows, "
+      f"{len(data.get('adhoc_template_config', []))} adhoc-config rows, "
+      f"{len(data['doc_format_config'])} format rows, "
       f"{n} files, {total/1024/1024:.0f} MB | scrubbed {red or 'nothing'}")
 '@
 $seedScript = Join-Path $Tmp "pz_seed.py"

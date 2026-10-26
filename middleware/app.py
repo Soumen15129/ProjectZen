@@ -53,6 +53,9 @@ from pydantic import BaseModel
 from llm_client import complete
 from db import (
     init_db, save_document, list_documents, search_documents, get_document,
+    # adhoc delta version lineage (side table; `documents` itself is unchanged)
+    init_adhoc_versions, get_adhoc_version, next_adhoc_version,
+    save_adhoc_version,
     # cascade addon
     init_cascade_tables, seed_format_config_defaults,
     save_cascade_session, update_cascade_session_status,
@@ -103,6 +106,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await init_db()
+    await init_adhoc_versions()
     await init_cascade_tables()
     await seed_format_config_defaults()
     await init_grounding_table()
@@ -112,8 +116,9 @@ async def startup():
     try:
         from seed_data import install_seed
         rep = await install_seed()
-        if rep.get("grounding_rows"):
-            print(f"   Seed  : {rep['grounding_rows']} reference docs registered, "
+        if rep.get("grounding_rows") or rep.get("adhoc_rows"):
+            print(f"   Seed  : {rep.get('grounding_rows', 0)} cascade + "
+                  f"{rep.get('adhoc_rows', 0)} adhoc config rows registered, "
                   f"{rep['refs_copied']} files installed")
         elif rep.get("skipped"):
             print(f"   Seed  : {rep['skipped']}")
@@ -170,6 +175,15 @@ class GenerateRequest(BaseModel):
     assistantMemory: Optional[str] = None
     isRefinement:   bool = False
     username:       Optional[str] = "unknown"
+    # ── Adhoc Delta Update ───────────────────────────────────────────────────
+    # Both default empty, and every delta branch below is gated on deltaSourceId
+    # being non-empty. An existing caller that does not know these fields exist
+    # takes exactly the path it took before — that is the whole design.
+    #
+    # deltaSourceId   — documents.id of the version this update is derived from.
+    # deltaChangeText — what changed, in the user's words.
+    deltaSourceId:   Optional[str] = ""
+    deltaChangeText: Optional[str] = ""
 
 
 class AskRequest(BaseModel):
@@ -251,6 +265,21 @@ def make_file_name(template_name: str, output_format: str) -> str:
     return f"{safe}_{ts}.{ext}"
 
 
+def _compose_delta(prev_name: str, prev_text: str, supporting_text: str) -> str:
+    """
+    The Delta Update input: the previous version, framed, then any supporting files.
+    One function so the route can rebuild it identically after fitting to the window.
+    """
+    return (
+        f"PREVIOUS VERSION OF THIS DOCUMENT — '{prev_name}'\n"
+        f"This is the document being UPDATED. Carry every section, row and value "
+        f"forward unchanged unless the requested change below affects it.\n"
+        f"{'-' * 70}\n{prev_text}\n{'-' * 70}\n\n"
+        + (f"SUPPORTING INPUT DOCUMENTS\n{supporting_text}"
+           if supporting_text.strip() else "")
+    )
+
+
 async def _resolve_inputs(req: "GenerateRequest"):
     """
     Extract every supplied input file and merge them into one source text.
@@ -276,13 +305,14 @@ async def _resolve_inputs(req: "GenerateRequest"):
         payloads.append(fd)
 
     if not payloads:
-        return "", {"files": [], "warnings": [], "skipped": []}
+        return "", {"files": [], "warnings": [], "skipped": []}, []
 
     # Adhoc reads far more of each file than the shared 80,000-character default.
     # A 27 MB SP051 deck is a real input here, and cutting it at 80K was dropping
     # scope that the pipeline then could not possibly plan for. Cascade keeps the
     # old ceiling: it was measured and tuned against it, and is out of scope.
-    per_file_cap = 250_000
+    from input_budget import ADHOC as _ADHOC_BUDGET
+    per_file_cap = _ADHOC_BUDGET.per_file_chars       # 250,000 — owned by input_budget
 
     extracted = []
     truncated = []
@@ -303,12 +333,45 @@ async def _resolve_inputs(req: "GenerateRequest"):
         extracted.append({"name": fd.name or "(unnamed)",
                           "ext": (fd.ext or "").lower(), "text": text})
 
+    # ── Drop sheets with no deliverable content — ONLY when the input will not fit ──
+    # Translation tables, cover pages and tables of contents. Applied only above the
+    # reading window, so an input that already fits is passed through untouched.
+    # Done BEFORE the combined-size check, so removing them can also bring an input
+    # back under it. Every removal is reported.
+    trimmed_note = []
+    try:
+        from input_budget import adhoc_windows as _adhoc_windows
+        from input_fit import trim_low_value_sheets, SPREADSHEET_EXTS
+        _window = min(_adhoc_windows().values())
+        if sum(len(f["text"]) for f in extracted) > _window:
+            for f in extracted:
+                if f["ext"] in SPREADSHEET_EXTS and f["text"]:
+                    f["text"], _dropped = trim_low_value_sheets(f["text"])
+                    if _dropped:
+                        trimmed_note.append(
+                            f"{f['name']}: " + ", ".join(
+                                f"{n} ({s:,} chars)" for n, s in _dropped))
+    except Exception as _te:
+        print(f"   [fit] sheet trimming skipped: {str(_te)[:110]}")
+
     try:
         merged = merge(extracted)
     except InputTooLarge as exc:
         # Deliberately surfaced rather than silently trimmed: quiet truncation is how
         # scope goes missing without anyone noticing.
-        raise HTTPException(413, exc.message)
+        msg = exc.message
+        if trimmed_note:
+            msg += ("\n\nSheets with no deliverable content (translations, cover pages, "
+                    "contents) were already left out before this check: "
+                    + "; ".join(trimmed_note) + ".")
+        raise HTTPException(413, msg)
+
+    if trimmed_note:
+        merged["warnings"].append({
+            "file": "Sheets left out", "ext": "",
+            "message": ("To fit the reading window, sheets with no deliverable content "
+                        "were left out: " + "; ".join(trimmed_note) + "."),
+        })
 
     for name in truncated:
         merged["warnings"].append({
@@ -321,7 +384,13 @@ async def _resolve_inputs(req: "GenerateRequest"):
         })
     for w in merged["warnings"]:
         print(f"   ⚠ input: {w['file']} — {w['message'][:90]}")
-    return merged["text"], {k: merged[k] for k in ("files", "skipped", "warnings")}
+    # The files behind the merged text, kept so the pipeline can read structure per
+    # file. Same filter and order as merge() uses, so a single file's part is exactly
+    # the text merge() returned. Never sent to the browser.
+    parts = [{"name": f["name"], "ext": f["ext"], "text": f["text"]}
+             for f in extracted if (f.get("text") or "").strip()]
+    return (merged["text"], {k: merged[k] for k in ("files", "skipped", "warnings")},
+            parts)
 
 
 # Reference types accepted from either side. Each must be readable AS A STRUCTURE and
@@ -650,7 +719,115 @@ async def _route_generate(req: GenerateRequest, request: Request):
     # process map. Accepting a single file meant the rest of the scope never reached
     # the pipeline at all — the same class of failure as a section silently missing
     # from the deliverable. See input_merge.py.
-    input_text, input_report = await _resolve_inputs(req)
+    input_text, input_report, input_parts = await _resolve_inputs(req)
+
+    # ── Delta Update: the previous version is an INPUT, not an instruction ────
+    #
+    # It goes into input_text rather than the prompt for a measured reason: the
+    # research stage truncates the prompt at user_prompt[:2000] (adhoc_pipeline).
+    # A full previous deliverable pasted into the prompt would consume that budget
+    # and push out the change description — the one thing the stage actually needs.
+    # Inputs carry no such cap, and the previous version genuinely IS source
+    # material here, sitting alongside the SOW and RTM the user attached.
+    #
+    # Guarded on deltaSourceId: with it empty, input_text is untouched and this is
+    # the ordinary generate path.
+    _delta_source = None
+    if (req.deltaSourceId or "").strip():
+        _delta_source = await get_document(req.deltaSourceId.strip())
+        if not _delta_source:
+            raise HTTPException(404, (
+                "The previous version selected for this update no longer exists in "
+                "the document library. Pick another version, or run a New Generation."))
+        _prev_text = ""
+        try:
+            _prev_path = _delta_source.get("file_path") or ""
+            if _prev_path and os.path.exists(_prev_path):
+                _prev_text = extract_text(_prev_path)
+        except Exception as _pe:
+            print(f"   [delta] could not re-read previous version: {str(_pe)[:110]}")
+        # content_summary is stored at generation time and is a usable fallback, but
+        # it is capped at 12000 chars — the file itself is the better source.
+        if not _prev_text.strip():
+            _prev_text = _delta_source.get("content_summary") or ""
+        if not _prev_text.strip():
+            raise HTTPException(422, (
+                f"The previous version '{_delta_source.get('file_name')}' could not be "
+                f"read, so there is nothing to update. Run a New Generation instead."))
+        input_text = _compose_delta(_delta_source.get('file_name'), _prev_text, input_text)
+        # The previous version is also its own part, first, so its structure is read
+        # directly. Behind the "PREVIOUS VERSION" heading above the structured parser
+        # could never recognise it, which turned field-level parsing off for every
+        # delta run — including a single workbook.
+        input_parts = ([{"name": _delta_source.get("file_name") or "previous version",
+                         "text": _prev_text}] + list(input_parts or []))
+        print(f"   [delta] base='{_delta_source.get('file_name')}' "
+              f"({len(_prev_text):,} chars carried forward)")
+
+    # ── Fit to the reading window, then report coverage ──────────────────────
+    #
+    # Every stage reads a fixed number of leading characters. Cut positionally, upload
+    # order decided what existed — the Compensation RTM, the file that says what to
+    # test, was never read because a 180K workbook came first. So input over the
+    # window is FITTED: every file gets a fair share (small ones whole, the rest split
+    # evenly), each cut on a line boundary with a marker. Input that fits is untouched.
+    #
+    # input_parts keeps the FULL files for the structured parser, which has its own
+    # budget; only the text the stages read is fitted. Runs after the Delta block so
+    # the previous version takes part in the fair share like any other file.
+    if input_parts:
+        try:
+            import input_budget as _ib
+            from input_fit import fit as _fit
+            from input_merge import merge as _merge
+            _windows = _ib.adhoc_windows()
+            _window = min(_windows.values())
+            _cover = None
+            if len(input_text) > _window:
+                _overhead = len(input_text) - sum(len(p["text"]) for p in input_parts)
+                _cut, _rows = _fit(input_parts, _overhead, _window)
+                if _delta_source is not None:
+                    _rest = _cut[1:]
+                    input_text = _compose_delta(_delta_source.get('file_name'),
+                                                _cut[0]["text"],
+                                                _merge(_rest)["text"] if _rest else "")
+                else:
+                    input_text = _merge(_cut)["text"]
+                if len(input_text) > _window:
+                    print(f"   [fit] still {len(input_text):,} > window {_window:,}")
+                _cover = [{"name": r["name"], "chars": r["chars"],
+                           "generation": round(100.0 * r["kept"] / r["chars"], 1),
+                           "analysis": round(100.0 * r["kept"] / r["chars"], 1)}
+                          for r in _rows]
+                print(f"   [fit] {sum(r['chars'] for r in _rows):,} chars fitted into "
+                      f"{_window:,}: " + ", ".join(
+                          f"{r['name']} {r['generation']:.0f}%" for r in _cover))
+            if _cover is None:
+                _cover = _ib.visibility(input_text, input_parts, _windows)
+            input_report["coverage"] = {"windows": _windows, "files": _cover}
+            _partial = [r for r in _cover
+                        if r["generation"] < 100 or r["analysis"] < 100]
+            if _partial:
+                _list = "; ".join(f"{r['name']} — {r['generation']:.0f}% used"
+                                  for r in _partial)
+                input_report.setdefault("warnings", []).append({
+                    "file": "Input coverage", "ext": "",
+                    "message": (
+                        f"Your inputs total {sum(r['chars'] for r in _cover):,} "
+                        f"characters and the reading window is {_window:,}. So that "
+                        f"every file is included, each was given a fair share: {_list}. "
+                        f"Content beyond each file's share was not used. For a "
+                        f"complete read, generate one module at a time."),
+                })
+            try:
+                import runlog as _rl_cov
+                _rl_cov.emit("input_coverage", windows=_windows, files=_cover,
+                             total_chars=len(input_text))
+            except Exception:
+                pass
+        except Exception as _ce:
+            # A report must never be able to fail a generation.
+            print(f"   [coverage] not computed: {str(_ce)[:110]}")
 
     raw_ref_text = ""
     ref_text     = ""
@@ -727,11 +904,48 @@ async def _route_generate(req: GenerateRequest, request: Request):
                   f"(follows reference)")
             req.outputFormat = _ref_ext
 
+    # ── A DECK WITHOUT A REFERENCE IS REFUSED, NOT DOWNGRADED ────────────────
+    #
+    # A deck's value is its design, and the only source of that design is the
+    # reference. With no reference the renderer falls back to blank layouts and
+    # plain text boxes — measured against GovernanceMartix.pptx that turns 71
+    # shapes and 8 grouped diagrams into 8 plain shapes and none. That file looks
+    # finished and is not, which is worse than no file: it gets sent to a client.
+    #
+    # Checked HERE, after the format has settled and before the pipeline spends
+    # anything, so the user is told in under a second rather than after a run.
+    if (req.outputFormat or "").lower() == "pptx" and not grounding_path:
+        raise HTTPException(400, (
+            "No reference deck is attached, so this presentation cannot be built. "
+            "A deck is produced by copying a reference and replacing its text, and "
+            "without one the result would lose the layouts, diagrams and branding "
+            "that make it usable.\n\n"
+            "Attach a reference in either place:\n"
+            "  • Admin — Template Config (Adhoc) → "
+            f"{_tmpl_name or 'this template'} → Reference File\n"
+            "  • This page — Adhoc Generate → 03 Reference File (Style & Structure)"))
+
     # Admin guidance leads, the user's own prompt follows and therefore wins on any
     # point they contradict — the user is describing their project, the admin is
     # describing the house style.
     effective_prompt = (admin_prompt + "\n\n" + req.userPrompt
                         if admin_prompt else req.userPrompt)
+
+    # The change itself leads the prompt in delta mode. It is deliberately SHORT so it
+    # survives the research stage's user_prompt[:2000] truncation intact; the bulk —
+    # the previous version — travelled in input_text above, which has no such cap.
+    if _delta_source is not None:
+        _chg = (req.deltaChangeText or "").strip()
+        effective_prompt = (
+            "DELTA UPDATE — this is a revision of an existing document, not a new one.\n"
+            "The previous version is supplied in the input documents. Reproduce it in "
+            "full, then apply ONLY the change described here. Every section, row and "
+            "value not touched by that change must survive verbatim; silently dropping "
+            "or re-summarising untouched content is the failure mode to avoid.\n\n"
+            f"CHANGE REQUESTED:\n{_chg or '(see the instructions below)'}\n\n"
+            "----- original instructions for this document -----\n"
+            + effective_prompt
+        )
 
     # ── Quality pipeline (same agents as cascade) ────────────────────────
     # Adhoc used to make ONE call and render the result, while cascade ran
@@ -749,7 +963,7 @@ async def _route_generate(req: GenerateRequest, request: Request):
                 template=_tmpl_name, node_id=_node_id,
                 output_format=req.outputFormat, user_prompt=effective_prompt,
                 input_text=input_text, grounding_text=ref_text,
-                grounding_path=grounding_path,
+                grounding_path=grounding_path, input_parts=input_parts,
             )
             if _res:
                 plan, pipeline_model = _res
@@ -765,6 +979,61 @@ async def _route_generate(req: GenerateRequest, request: Request):
             effective_prompt, req.outputFormat, input_text, ref_text,
             req.mirrorAspects, req.assistantMemory, req.isRefinement, raw_ref_text,
         )
+
+    # ── A DECK PLAN THAT OUTGREW ITS REFERENCE CANNOT BE CLONED ──────────────
+    #
+    # Caught HERE, before authoring spends anything, because the failure downstream
+    # is both expensive and badly described. Measured on a real run: a Weekly Status
+    # plan committed to 8 slides against a 5-slide reference, the agent filled two of
+    # them and left six as bare titles, and the volume gate rejected the result with
+    # "lost content: 62 rows vs 84" — a message comparing paragraphs against planned
+    # rows, which tells the user nothing about what actually went wrong.
+    #
+    # The planner is already told the reference's exact slide count and "DO NOT
+    # MULTIPLY SLIDES" (reference_deck_blueprint). Exceeding it by more than the two
+    # slides validate() tolerates means that instruction lost to something else —
+    # usually an admin system prompt whose section headings read as a slide list.
+    # That is a configuration fault, and saying so is worth more than letting the
+    # agent spend several dollars discovering it.
+    #
+    # Scoped exactly like the other deck rules: adhoc, pptx, and only when a readable
+    # reference deck exists. Every other format and cascade are untouched.
+    if (req.outputFormat or "").lower() == "pptx" and grounding_path and pipeline_model:
+        try:
+            _planned = len([s for s in (plan.get("slides") or []) if isinstance(s, dict)])
+            _ref_slides = 0
+            if grounding_path.lower().endswith(".pptx") and os.path.exists(grounding_path):
+                from pptx import Presentation as _Prs
+                _ref_slides = len(_Prs(grounding_path).slides)
+        except Exception as _se:
+            print(f"   [deck] slide-count precheck skipped ({type(_se).__name__})")
+            _planned = _ref_slides = 0
+        # Only a clear overrun trips this. Equal counts, fewer slides, and the +2 the
+        # output gate already allows all pass straight through.
+        if _ref_slides and _planned > _ref_slides + 2:
+            try:
+                import runlog as _rl5
+                _rl5.emit("deck_refused", reason="plan outgrew reference",
+                          slides_planned=_planned, reference_slides=_ref_slides,
+                          attempted=False,
+                          reference=os.path.basename(grounding_path))
+            except Exception:
+                pass
+            raise HTTPException(422, (
+                f"This presentation was not generated, because the plan does not fit "
+                f"the reference deck.\n\n"
+                f"The plan calls for {_planned} slides; the reference has "
+                f"{_ref_slides}. A deck is built by copying the reference and "
+                f"replacing its text, so there is no design to clone for the extra "
+                f"{_planned - _ref_slides}. Producing it anyway gives a few filled "
+                f"slides followed by empty ones.\n\n"
+                f"This is almost always the template's system prompt: if it lists "
+                f"topics under headings, the planner reads them as a slide list. "
+                f"Phrase them as content that belongs within the reference's existing "
+                f"slides.\n\n"
+                f"Fix it under Admin — Template Config (Adhoc) → "
+                f"{_tmpl_name or 'this template'} → System Prompt, or attach a "
+                f"reference deck that has {_planned} slides."))
 
     ref_schema = ""
     if req.outputFormat == "xml" and raw_ref_text:
@@ -786,6 +1055,10 @@ async def _route_generate(req: GenerateRequest, request: Request):
         # the renderer below, which is the path adhoc has always taken.
         _authored = False
         authoring_note = ""
+        # The raw reason, kept apart from authoring_note. The note is phrased for the
+        # formats that still fall back ("...so this file was produced by the standard
+        # renderer"), which is untrue for a deck that is now refused outright.
+        _author_why = ""
         if pipeline_model:
             try:
                 import authoring, runlog as _rl
@@ -810,6 +1083,7 @@ async def _route_generate(req: GenerateRequest, request: Request):
                     _rl.emit("authoring", accepted=bool(_authored),
                              reason=_why or "", stats=_stats or {})
                     if not _authored:
+                        _author_why = str(_why or "")
                         authoring_note = (
                             f"The high-fidelity path did not complete ({_why}), so this "
                             f"file was produced by the standard renderer. It follows the "
@@ -821,6 +1095,7 @@ async def _route_generate(req: GenerateRequest, request: Request):
             except Exception as _ae:
                 print(f"   [authoring] unavailable: {str(_ae)[:110]}")
                 _authored = False
+                _author_why = f"{type(_ae).__name__}: {str(_ae)[:140]}"
                 authoring_note = (f"The high-fidelity path was unavailable "
                                   f"({type(_ae).__name__}); the standard renderer was used.")
                 try:
@@ -830,11 +1105,74 @@ async def _route_generate(req: GenerateRequest, request: Request):
                     pass
 
         if not _authored:
+            # ── A DECK IS CLONED FROM ITS REFERENCE, OR IT IS NOT PRODUCED ──────
+            #
+            # Every other format degrades gracefully: a workbook rendered from the
+            # JSON plan is plainer than an authored one but still correct and still
+            # useful. A deck does not degrade that way. The renderer discards the
+            # reference's slides and rebuilds on blank layouts, so the governance
+            # deck's 71 shapes and 8 grouped diagrams come back as 8 plain shapes
+            # and no diagrams — a file that LOOKS finished, carries the right
+            # colours, and is not fit to send to a client.
+            #
+            # Handing that over silently is the failure this refuses. Adhoc + pptx
+            # only: cascade still falls back, because aborting one node there would
+            # take a whole multi-document run down with it.
+            if (req.outputFormat or "").lower() == "pptx":
+                try:
+                    import runlog as _rl4
+                    _rl4.emit("deck_refused",
+                              reason=_author_why or "authoring was not attempted",
+                              attempted=bool(pipeline_model),
+                              slides_planned=len(plan.get("slides") or []),
+                              reference=os.path.basename(grounding_path or ""))
+                except Exception:
+                    pass
+                raise HTTPException(503, (
+                    "This presentation could not be built from the reference deck, "
+                    "so nothing has been generated.\n\n"
+                    f"Reason: {_author_why or 'the high-fidelity path did not run'}\n\n"
+                    "A deck is produced by copying the reference and replacing its "
+                    "text. When that cannot complete, the only alternative is a "
+                    "plain deck on blank layouts with the reference's diagrams and "
+                    "branding stripped out. That is withheld on purpose — it looks "
+                    "finished but is not.\n\n"
+                    "What to try:\n"
+                    "  • Generate again — a timeout is often transient\n"
+                    "  • Narrow the scope in your prompt so the deck needs fewer "
+                    "slides\n"
+                    "  • Confirm the attached reference is the right deck for this "
+                    "document"))
+
             # grounding_path was never passed here, so adhoc output got no template
             # cloning at all - no inherited fills, widths or number formats. Cascade
             # has always passed it; this brings adhoc to the same floor.
             generate(req.outputFormat, plan, out_path, ref_schema,
                      grounding_path=grounding_path or None)
+
+            # WHICH RENDERER PRODUCED THIS FILE — recorded even when authoring never ran.
+            #
+            # The "authoring" event above is only emitted when `pipeline_model` is set,
+            # so a deck built straight by the plain renderer left NO trace anywhere: 28
+            # run logs contain exactly one authoring row, and it is an xlsx. That makes
+            # "is the deck path timing out, or was it never attempted?" unanswerable
+            # from the logs, which is the question that decides what to fix next.
+            try:
+                import runlog as _rl3
+                _rl3.emit("renderer",
+                          output_format=req.outputFormat,
+                          reason=("authoring declined" if pipeline_model
+                                  else "no pipeline model; authoring not attempted"),
+                          templated=bool(grounding_path),
+                          slides_planned=len(plan.get("slides") or []),
+                          sheets_planned=len(plan.get("sheets") or []))
+            except Exception:
+                pass
+    except HTTPException:
+        # A deliberate refusal carries its own status and its own explanation. Without
+        # this it would be caught below and rewritten as "Generation failed: 503: ...",
+        # burying the reason the user actually needs inside a generic 500.
+        raise
     except Exception as gen_err:
         raise HTTPException(500, f"Generation failed: {str(gen_err)[:400]}")
 
@@ -858,6 +1196,26 @@ async def _route_generate(req: GenerateRequest, request: Request):
         content_summary= content_summary,
     )
 
+    # Lineage is recorded AFTER the document row exists, and only in delta mode.
+    # Deliberately non-fatal: the file is already written and saved, so a lineage
+    # failure must cost the user a version number, never the deliverable.
+    _version_info = None
+    if _delta_source is not None:
+        try:
+            _v = await next_adhoc_version(_delta_source["id"])
+            await save_adhoc_version(
+                doc_id=doc_id, root_id=_v["root_id"],
+                parent_id=_delta_source["id"], version=_v["version"],
+                delta_notes=(req.deltaChangeText or "")[:2000],
+            )
+            _version_info = {"version": _v["version"],
+                             "basedOn": _delta_source.get("file_name"),
+                             "basedOnId": _delta_source["id"]}
+            print(f"   [delta] saved as v{_v['version']} "
+                  f"(root={_v['root_id'][:8]}…)")
+        except Exception as _ve:
+            print(f"   [delta] lineage not recorded: {str(_ve)[:110]}")
+
     base_url = str(request.base_url).rstrip("/")
     return {
         "success":      True,
@@ -879,6 +1237,9 @@ async def _route_generate(req: GenerateRequest, request: Request):
         # Which engine produced the file, and why if it was not the best one. A user
         # comparing two outputs needs to know they came from different paths.
         "authoring":    {"used": bool(_authored), "note": authoring_note or None},
+        # Present only for a Delta Update: which version this is and what it came
+        # from. null on a New Generation, so the UI can tell the two apart.
+        "version":      _version_info,
     }
 
 
@@ -1178,6 +1539,40 @@ async def route_documents(
 ):
     docs = await list_documents(username=username, output_format=format, template=template, limit=limit)
     return {"success": True, "count": len(docs), "documents": docs}
+
+
+# ── GET /adhoc/delta/sources ──────────────────────────────────────────────────
+
+@app.get("/adhoc/delta/sources")
+async def route_delta_sources(template: str, limit: int = 50):
+    """
+    Documents a Delta Update may be built on, newest first.
+
+    Filtered HERE rather than in the browser for one reason that matters: cascade
+    writes into the same `documents` table under username='cascade'. Offering those
+    would let an adhoc delta fork a deliverable that cascade still tracks as current,
+    and the two version histories would diverge with nothing recording it.
+
+    Version numbers come from the adhoc_versions side table. A document with no row
+    there is version 1 — which is why every document already in the library is a
+    valid starting point without any backfill.
+    """
+    docs = await list_documents(template=template, limit=max(1, min(limit, 200)))
+    out = []
+    for d in docs:
+        if (d.get("username") or "").lower() == "cascade":
+            continue
+        lin = await get_adhoc_version(d["id"])
+        out.append({
+            "id":           d["id"],
+            "fileName":     d.get("file_name"),
+            "outputFormat": d.get("output_format"),
+            "sizeKB":       d.get("size_kb"),
+            "createdAt":    d.get("created_at"),
+            "username":     d.get("username"),
+            "version":      int(lin["version"]) if lin else 1,
+        })
+    return {"success": True, "count": len(out), "sources": out}
 
 
 @app.get("/ref/{ref_id}")

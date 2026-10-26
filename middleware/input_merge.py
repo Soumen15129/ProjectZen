@@ -30,9 +30,11 @@ over a .mpp deserves to know that before they judge the output.
 
 from typing import Any, Dict, List
 
-# Roughly 200K tokens of English at ~4 chars/token, leaving generous room for the
-# grounding reference, research pack, plan and schema that share the window.
-MAX_MERGED_CHARS = 500_000
+# Combined-input ceiling, owned by input_budget so every adhoc limit lives in one
+# place. The value is unchanged at 500,000. (Its old comment called this "roughly 200K
+# tokens"; at ~4 chars/token it is nearer 125K.)
+from input_budget import ADHOC as _ADHOC_BUDGET
+MAX_MERGED_CHARS = _ADHOC_BUDGET.merged_chars
 
 # Formats whose extraction is lossy enough that the user should be told.
 DEGRADED_FORMATS = {
@@ -52,7 +54,10 @@ class InputTooLarge(Exception):
 
 
 def _fmt_kb(n: int) -> str:
-    return f"{n / 1024:.0f} KB" if n >= 1024 else f"{n} chars"
+    # Characters of extracted TEXT, labelled as such. This used to print n/1024 with a
+    # "KB" suffix, so a 614 KB workbook appeared as "178 KB" and the user could not
+    # reconcile the message with the file size shown in Explorer.
+    return f"{n / 1000:,.0f}K characters" if n >= 1000 else f"{n:,} characters"
 
 
 def merge(files: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -73,10 +78,13 @@ def merge(files: List[Dict[str, Any]]) -> Dict[str, Any]:
             "The files you selected are too large to process together.\n\n"
             f"Combined, they contain about {total // 1000:,}K characters of text, and "
             f"the limit is about {MAX_MERGED_CHARS // 1000:,}K.\n\n"
-            "Largest files:\n" + "\n".join(lines) + "\n\n"
-            "Please remove the largest file or two and try again. Documents that "
-            "mostly contain images or slides often carry far more text than they "
-            "appear to.",
+            "Largest files (by text extracted, not by file size):\n"
+            + "\n".join(lines) + "\n\n"
+            "For a complete result, split the job so each run fits — for example, "
+            "generate one module at a time with that module's files. Leaving out a "
+            "file this document does not need also works. A file's size on disk is a "
+            "poor guide: spreadsheets often hold far more text than their size "
+            "suggests, and decks of images far less.",
             {"total_chars": total, "limit": MAX_MERGED_CHARS,
              "files": [{"name": f["name"], "chars": len(f["text"])} for f in biggest]},
         )

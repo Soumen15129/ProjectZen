@@ -61,18 +61,51 @@ if (-not (Test-Path (Join-Path $Middleware "app.py"))) {
 }
 
 # -- 2. Dependencies -------------------------------------------------------
+# $ErrorActionPreference is "Stop" for this script, and PowerShell 5.1 promotes ANY
+# stderr output from a native command into a TERMINATING error. That killed the
+# launcher at the import probe below - the one check whose entire purpose is to
+# discover that packages are missing so it can install them. A missing package made
+# python print a traceback, the traceback became a NativeCommandError, and the user
+# got a wall of red instead of an install. `2>$null` does not prevent it.
+#
+# pip is the same hazard on the way back out: it writes version notices and build
+# warnings to stderr during a perfectly successful install. So the preference stays
+# relaxed across the whole step. Nothing is lost by that - every command here is
+# already checked through $LASTEXITCODE, which is what actually carries the outcome.
 Step "Checking dependencies"
-& $Python -c "import fastapi, uvicorn, claude_agent_sdk, openpyxl, langgraph" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    $wheels = Join-Path $Root "wheels"
-    if (Test-Path $wheels) {
-        Warn "Installing bundled packages (one time, offline)..."
-        & $Python -m pip install --no-index --find-links "$wheels" -r (Join-Path $Middleware "requirements.txt") --quiet
-    } else {
-        Warn "Installing packages from PyPI (one time)..."
-        & $Python -m pip install -r (Join-Path $Middleware "requirements.txt") --quiet
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & $Python -c "import fastapi, uvicorn, claude_agent_sdk, openpyxl, langgraph" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $wheels = Join-Path $Root "wheels"
+        if (Test-Path $wheels) {
+            Warn "Installing bundled packages (one time, offline)..."
+            & $Python -m pip install --no-index --find-links "$wheels" -r (Join-Path $Middleware "requirements.txt") --quiet
+        } else {
+            Warn "Installing packages from PyPI (one time, a few minutes)..."
+            & $Python -m pip install -r (Join-Path $Middleware "requirements.txt") --quiet
+        }
+        if ($LASTEXITCODE -ne 0) {
+            $ErrorActionPreference = $prevEAP
+            Fail "Dependency installation failed."
+            Say  "Install them by hand with:"
+            Say  "    `"$Python`" -m pip install -r `"$(Join-Path $Middleware 'requirements.txt')`""
+            Stop-Here 1
+        }
+        # Prove the install actually satisfied the imports rather than trusting pip's
+        # exit code, which is 0 for a resolved-but-broken environment too.
+        & $Python -c "import fastapi, uvicorn, claude_agent_sdk, openpyxl, langgraph" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $ErrorActionPreference = $prevEAP
+            Fail "Packages installed but still do not import."
+            Say  "This usually means more than one Python is on PATH. This launcher used:"
+            Say  "    $Python"
+            Stop-Here 1
+        }
     }
-    if ($LASTEXITCODE -ne 0) { Fail "Dependency installation failed."; Stop-Here 1 }
+} finally {
+    $ErrorActionPreference = $prevEAP
 }
 Ok "All packages present"
 

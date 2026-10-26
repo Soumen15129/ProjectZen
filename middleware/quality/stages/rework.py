@@ -28,6 +28,12 @@ from ..llm import complete
 from ..patch import apply_patch, outline
 from ..refusal import is_refusal
 
+try:
+    from input_budget import override as _budget
+except Exception:                         # pragma: no cover
+    def _budget(field, default):
+        return default
+
 _SYSTEM = (
     "You are performing a surgical correction to a structured JSON document. You "
     "change only what the findings require and you preserve every other byte of "
@@ -76,7 +82,7 @@ def build_prompt(node: dict, draft_json: str, findings: List[Dict[str, Any]],
         f"SCHEMA (the result must still conform):\n{truncate(schema, CTX_SCHEMA)}\n\n"
         "HARD RULES:\n"
         "1. Return ONLY valid JSON. No markdown. No explanation. No backticks.\n"
-        "2. Every string: max 120 chars, ASCII only.\n"
+        f"2. Every string: max {_budget('cell_chars', 120)} chars, ASCII only.\n"
         "3. No trailing commas.\n"
         "4. Numbers in values arrays must be JSON numbers, not strings.\n"
         "5. Return ONLY the JSON object, nothing else."
@@ -108,7 +114,7 @@ def build_patch_prompt(node: dict, draft_json: str, findings: List[Dict[str, Any
         "3. Emit the MINIMUM set of ops that resolves the findings. Do not touch "
         "anything the findings do not name — an unrequested change is a defect.\n"
         "4. Do NOT return the document. Return only the ops object.\n"
-        "5. Every string value: max 120 chars, ASCII only.\n"
+        f"5. Every string value: max {_budget('cell_chars', 120)} chars, ASCII only.\n"
         "6. Valid JSON only. No markdown, no backticks, no explanation.\n"
     )
 

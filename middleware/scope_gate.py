@@ -795,6 +795,15 @@ _ROLLUP_FILLER = {"test", "tests", "testing", "case", "cases", "scenario",
                   "scenarios", "count", "counts", "breakdown", "summary"}
 
 
+_CASE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)+$")
+
+
+def _is_case_id(value: str) -> bool:
+    """'SIT-DM-001' and 'SIT-EC-001-IN' are case IDs; 'EC-Core' and '1' are not."""
+    return bool(_split_id(value)) or (bool(_CASE_ID_RE.match(value))
+                                      and any(ch.isdigit() for ch in value))
+
+
 def recompute_rollup(plan: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     """
     Fill the 'Total TCs' column of a rollup sheet with counts taken from the
@@ -815,16 +824,21 @@ def recompute_rollup(plan: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
             return plan, []                    # not a test-count rollup -> inert
 
         # ── Count everything countable, from the data sheets only ────────────
+        #
+        # Only sheets keyed by test case in column A, and each case once: a steps
+        # sheet repeats its case ID on every step, and a scenario sheet with a
+        # 'Test Case IDs' column lists scenarios, not cases.
         per_sheet: Dict[str, int] = {}
         levels: Dict[str, int] = {}
         countries: Dict[str, int] = {}
         grand = with_country = 0
+        seen: set = set()
         for sheet in sheets:
             name = str(sheet.get("name") or "")
             if sheet is rollup or _is_meta_sheet(name):
                 continue
             headers = [str(h).strip().lower() for h in (sheet.get("headers") or [])]
-            if not any("test case id" in h for h in headers):
+            if not headers or "test case id" not in headers[0]:
                 continue
             li = next((i for i, h in enumerate(headers)
                        if h in ("test level", "level")), None)
@@ -833,8 +847,10 @@ def recompute_rollup(plan: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
             for row in (sheet.get("rows") or []):
                 if not isinstance(row, (list, tuple)) or not row:
                     continue
-                if not _split_id(row[0]):
-                    continue                   # not a test case row
+                cid = str(row[0] or "").strip()
+                if not _is_case_id(cid) or cid in seen:
+                    continue                   # not a test case row, or counted already
+                seen.add(cid)
                 n += 1
                 grand += 1
                 if li is not None and li < len(row) and str(row[li] or "").strip():
@@ -1450,13 +1466,15 @@ def repair_instruction(report: Dict[str, Any],
                        balance: Optional[Dict[str, Any]] = None,
                        column_notes: Optional[Sequence[str]] = None,
                        dimensions: Optional[Sequence[Dict[str, Any]]] = None,
-                       excluded: Optional[Sequence[str]] = None) -> str:
+                       excluded: Optional[Sequence[str]] = None,
+                       allow_new_sheets: bool = True) -> str:
     """
     The correction sent back to the model. Names the specific gaps — a generic
     "be more complete" is what already failed three times.
 
     `balance` and `column_notes` are optional so existing callers keep working
-    unchanged.
+    unchanged. `allow_new_sheets=False` keeps every addition inside the existing
+    sheets, for workbooks whose sheet set is fixed by the reference.
     """
     parts: List[str] = [
         "SCOPE CORRECTION — YOUR PREVIOUS PLAN WAS INCOMPLETE.\n"
@@ -1468,7 +1486,14 @@ def repair_instruction(report: Dict[str, Any],
     absent = report.get("absent") or []
     rows_only = report.get("in_rows_only") or []
 
-    if absent:
+    if absent and not allow_new_sheets:
+        parts.append(
+            "MISSING ENTIRELY — these in-scope items appear nowhere in your "
+            "plan. Add rows for each to the EXISTING sheets, populated to the "
+            "same depth as the items you already covered:\n"
+            + "".join(f"    - {m}\n" for m in absent) + "\n"
+        )
+    elif absent:
         parts.append(
             "MISSING ENTIRELY — these in-scope items appear nowhere in your "
             "plan. Add a dedicated sheet for each, populated to the same depth "
@@ -1476,7 +1501,7 @@ def repair_instruction(report: Dict[str, Any],
             + "".join(f"    - {m}\n" for m in absent) + "\n"
         )
 
-    if rows_only:
+    if rows_only and allow_new_sheets:
         parts.append(
             "PRESENT BUT WITH NO SHEET OF THEIR OWN — you folded these into "
             "another sheet. This deliverable is ONE workbook with EVERY module "
@@ -1577,21 +1602,41 @@ def repair_instruction(report: Dict[str, Any],
     # a fraction of the output, and Python appends it — so existing content
     # cannot be thinned, reordered or dropped by a model under output pressure.
     # It is structurally additive rather than additive-by-instruction.
+    if allow_new_sheets:
+        shape_lines = (
+            '{"additions": [\n'
+            '  {"sheet": "<exact name of an EXISTING sheet>", '
+            '"rows": [["cell", "cell", ...], ...]},\n'
+            '  {"sheet": "<name of a NEW sheet>", "headers": ["col", ...], '
+            '"rows": [["cell", ...], ...]}\n'
+            "]}\n\n"
+        )
+        sheet_rule = (
+            "  - Use the EXACT existing sheet name when adding to a sheet that "
+            "already exists. Supply \"headers\" ONLY for a sheet that does not exist "
+            "yet.\n"
+        )
+    else:
+        shape_lines = (
+            '{"additions": [\n'
+            '  {"sheet": "<exact name of an EXISTING sheet>", '
+            '"rows": [["cell", "cell", ...], ...]}\n'
+            "]}\n\n"
+        )
+        sheet_rule = (
+            "  - Do NOT create new sheets. Every row goes into an EXISTING sheet, "
+            "named exactly, with exactly that sheet's columns. Out-of-scope rows go "
+            "in an existing sheet such as Scope. A row for a new sheet is "
+            "discarded.\n"
+        )
     parts.append(
         "RETURN ONLY THE ADDITIONS — NOT THE WHOLE PLAN.\n\n"
         "Reply with EXACTLY this JSON shape and nothing else:\n\n"
-        '{"additions": [\n'
-        '  {"sheet": "<exact name of an EXISTING sheet>", '
-        '"rows": [["cell", "cell", ...], ...]},\n'
-        '  {"sheet": "<name of a NEW sheet>", "headers": ["col", ...], '
-        '"rows": [["cell", ...], ...]}\n'
-        "]}\n\n"
+        + shape_lines +
         "  - Every row must have exactly as many cells as that sheet's header "
         "row, in the same column order. Fill every column, including Status and "
         "the notes column.\n"
-        "  - Use the EXACT existing sheet name when adding to a sheet that "
-        "already exists. Supply \"headers\" ONLY for a sheet that does not exist "
-        "yet.\n"
+        + sheet_rule +
         "  - Do NOT resend rows the plan already has. Everything you return is "
         "APPENDED to what is there, so a resent row becomes a duplicate.\n"
         "  - Do NOT return existing sheets, the title, or any other field. Your "
@@ -1632,12 +1677,15 @@ def _split_id(value: Any) -> Optional[Tuple[str, str, int, int]]:
 
 
 def merge_row_additions(plan: Dict[str, Any],
-                        delta: Any) -> Tuple[Dict[str, Any], int, List[str]]:
+                        delta: Any,
+                        allow_new_sheets: bool = True) -> Tuple[Dict[str, Any], int, List[str]]:
     """
     Fold the repair pass's `{"additions": [...]}` into the plan. ADDITIVE ONLY.
 
     Returns (new_plan, rows_added, notes). The input plan is never mutated —
     the caller still needs it intact to compare against and to fall back to.
+    With `allow_new_sheets=False`, additions aimed at a sheet the plan does not
+    have are skipped and noted.
 
     Nothing here can remove a sheet, remove a row, or reorder anything: the only
     write operations are `list.append` on a copied plan. That is the point. The
@@ -1701,6 +1749,9 @@ def merge_row_additions(plan: Dict[str, Any],
                 continue
 
             target = by_exact.get(name) or by_norm.get(_norm(name))
+            if target is None and not allow_new_sheets:
+                notes.append(f"skipped new sheet '{name}' ({len(rows)} row(s))")
+                continue
             if target is None:
                 # A genuinely new sheet. Borrow the headers the model supplied;
                 # falling back to an existing sheet's columns keeps the workbook

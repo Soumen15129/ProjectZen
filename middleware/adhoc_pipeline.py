@@ -48,7 +48,8 @@ original single-shot path. A worse document is bad; no document is worse.
 
 import json
 import re
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+import uuid
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 # Key under which the user's uploaded file is handed to the generator as a "parent".
 # _build_gen_prompt resolves each parent key through get_node() and falls back to the
@@ -124,6 +125,27 @@ def model_for(node: Dict[str, Any]) -> str:
         return TIER_MODELS.get(node.get("tier", "T2"), "claude-opus-4-8")
     except Exception:
         return "claude-opus-4-8"
+
+
+# Workbooks whose cells hold full sentences (objectives, test steps). Every other
+# template and format keeps the shared 120-character cell limit.
+LONG_CELL_NODES = frozenset({"test-script"})
+LONG_CELL_CHARS = 1000
+
+
+def register_workbook(node_id: str, output_format: str) -> bool:
+    """A LONG_CELL_NODES workbook: one Scenario / Case / Step register, never a tab
+    per module."""
+    return (node_id or "") in LONG_CELL_NODES and (output_format or "").lower() == "xlsx"
+
+
+def long_cell_budget(node_id: str, output_format: str):
+    """The adhoc budget with long cells for a LONG_CELL_NODES workbook, else None."""
+    if not register_workbook(node_id, output_format):
+        return None
+    import dataclasses
+    import input_budget
+    return dataclasses.replace(input_budget.ADHOC, cell_chars=LONG_CELL_CHARS)
 
 
 # ── Node-ID sets / keyword sets for document-type detection ──────────────────
@@ -464,10 +486,12 @@ async def _enforce_scope(
     stream_generate,
     sheet_shape: str = "unknown",
     template: str = "",
+    allow_new_sheets: bool = True,
 ) -> Dict[str, Any]:
     """
     Check the finished plan against the in-scope list and, if short, send it
-    back ONCE with the specific gaps named.
+    back ONCE with the specific gaps named. `allow_new_sheets=False` keeps the
+    repair inside the plan's existing sheets.
 
     Why a check and not a stronger instruction: three runs of the same input
     with only prompt wording changing produced 15, 13 and 12 sheets, and the
@@ -626,7 +650,8 @@ async def _enforce_scope(
         instruction = scope_gate.repair_instruction(
             report, row_shortfall=shortfall, row_floor=threshold,
             row_actual=actual, balance=balance, column_notes=col_notes,
-            dimensions=dims, excluded=(ceiling["items"] if ceiling["needs_repair"] else None))
+            dimensions=dims, excluded=(ceiling["items"] if ceiling["needs_repair"] else None),
+            allow_new_sheets=allow_new_sheets)
 
         print("   [scope-gate] requesting one repair pass (row delta)")
         raw = await stream_generate(build_prompt(instruction))
@@ -637,7 +662,8 @@ async def _enforce_scope(
         # the measurement in scope_gate.repair_instruction(). A merge cannot
         # thin or drop existing content, so the guards below are now checking
         # for an ineffective repair rather than a destructive one.
-        repaired, added, notes = scope_gate.merge_row_additions(plan, delta)
+        repaired, added, notes = scope_gate.merge_row_additions(
+            plan, delta, allow_new_sheets=allow_new_sheets)
         if not added:
             print("   [scope-gate] repair returned no usable rows; "
                   "keeping original")
@@ -708,17 +734,44 @@ async def run(
     grounding_text: str = "",
     grounding_path: str = "",
     on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+    input_parts: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[Tuple[Dict[str, Any], str]]:
     """
     Produce a reviewed document plan for one adhoc template.
 
     Returns (plan, model) on success, or None to tell the caller to use the old path.
+
+    Runs inside the ADHOC input budget, so every shared stage it reaches — scope
+    extraction, research, generation, review — reads adhoc's limits, while cascade,
+    which never enters this scope, keeps its own. See input_budget.py.
+
+    input_parts: the files behind input_text, one {"name", "text"} each, so structure
+    can be read per file. Optional; without it the merged text is parsed as before.
     """
+    import input_budget
+    budget = long_cell_budget(node_id, output_format) or input_budget.ADHOC
+    with input_budget.scope(budget):
+        return await _run(template, node_id, output_format, user_prompt, input_text,
+                          grounding_text, grounding_path, on_chunk, input_parts)
+
+
+async def _run(
+    template: str,
+    node_id: str,
+    output_format: str,
+    user_prompt: str,
+    input_text: str,
+    grounding_text: str = "",
+    grounding_path: str = "",
+    on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+    input_parts: Optional[List[Dict[str, str]]] = None,
+) -> Optional[Tuple[Dict[str, Any], str]]:
+    """The body of run(), executed inside the adhoc input budget."""
     try:
         from cascade_agent import (
             _FORMAT_SCHEMAS, _FORMAT_DETAIL, _sanitize_plan, _clean_json,
-            MAX_SOURCE_CHARS,
         )
+        from input_budget import active as _active_budget, ADHOC as _ADHOC_BUDGET
         from llm_client import complete, usage_scope
         from quality.pipeline import run_quality_pipeline
     except Exception as exc:
@@ -730,11 +783,26 @@ async def run(
     schema = _FORMAT_SCHEMAS.get(output_format, _FORMAT_SCHEMAS["docx"])
     detail = _FORMAT_DETAIL.get(output_format, _FORMAT_DETAIL["docx"])
 
+    # Extracted reference text stops after its first few sheets; for long-cell
+    # workbooks every sheet's headers and example rows are shown instead.
+    skeleton = ""
+    if register_workbook(node_id, output_format) and grounding_path:
+        try:
+            import reference_skeleton
+            skeleton = reference_skeleton.build(grounding_path)
+        except Exception:
+            skeleton = ""
+        if skeleton:
+            grounding_text = skeleton
+            print(f"   [skeleton] reference described sheet by sheet "
+                  f"({len(skeleton):,} chars)")
+
     # Measured per-sheet depth from the actual reference beats the generic
-    # "15-40 rows" range — the same hint cascade feeds its generator.
+    # "15-40 rows" range — the same hint cascade feeds its generator. The skeleton
+    # already gives each sheet's size, and this hint names the first sheet as primary.
     try:
         from authoring import reference_depth_hint
-        hint = reference_depth_hint(grounding_path)
+        hint = "" if skeleton else reference_depth_hint(grounding_path)
         if hint:
             detail = detail + "\n\n" + hint
     except Exception:
@@ -864,9 +932,12 @@ async def run(
         project_ctx = prompt_ctx      # no file supplied — the prompt is the brief
 
     # Raw source text, delivered exactly as run_new_cascade delivers its root document.
+    # Adhoc's own limit — no longer cascade's MAX_SOURCE_CHARS, which this used to import,
+    # so that changing either one could silently change the other.
     parents: Dict[str, str] = {}
     if input_text.strip():
-        parents[_INPUT_PARENT_LABEL] = input_text[:MAX_SOURCE_CHARS]
+        _parent_cap = (_active_budget() or _ADHOC_BUDGET).parent_chars
+        parents[_INPUT_PARENT_LABEL] = input_text[:_parent_cap]
 
     # ── Item 06 — Structured workbook parsing ─────────────────────────────
     # Attempts to parse the tab-CSV structure that extractor.py produces from
@@ -878,7 +949,45 @@ async def run(
     if input_text.strip() and output_format in ("xlsx", "docx"):
         try:
             from parsers.xlsx_config import parse_xlsx_extraction
-            _parsed = parse_xlsx_extraction(input_text)
+            if input_parts:
+                # PARSE EACH FILE ON ITS OWN. The parser recognises a workbook by its
+                # first line ("[Sheet Name]"), so it can never find one inside merged
+                # text: a multi-file merge opens with "The following N source
+                # documents...", and Delta Update opens with "PREVIOUS VERSION OF THIS
+                # DOCUMENT". Both returned None, and the field-level block — exact
+                # field IDs and picklist values — silently vanished from every
+                # multi-file run and every delta run.
+                _blocks = []
+                for _part in input_parts:
+                    _b = parse_xlsx_extraction(_part.get("text") or "")
+                    if _b:
+                        _blocks.append((_part.get("name") or "input", _b))
+                if len(_blocks) == 1:
+                    # One contributing file: exactly the block the old path produced.
+                    _parsed = _blocks[0][1]
+                elif _blocks:
+                    _cap = (_active_budget() or _ADHOC_BUDGET).structured_chars
+                    _kept, _dropped, _size = [], [], 0
+                    for _name, _b in _blocks:
+                        _piece = f"[Parsed from: {_name}]\n{_b}"
+                        # Whole blocks only — never a block cut mid-field.
+                        if _kept and _size + len(_piece) > _cap:
+                            _dropped.append(_name)
+                            continue
+                        _kept.append(_piece)
+                        _size += len(_piece) + 2
+                    _parsed = "\n\n".join(_kept)
+                    if _dropped:
+                        _parsed += ("\n\n[Field-level structure omitted for: "
+                                    + ", ".join(_dropped)
+                                    + " — over the structured-block budget.]")
+                    print(f"   [parser] {len(_kept)} of {len(_blocks)} workbook(s) "
+                          f"parsed per file"
+                          + (f"; {len(_dropped)} over budget" if _dropped else ""))
+                else:
+                    _parsed = None
+            else:
+                _parsed = parse_xlsx_extraction(input_text)
             if _parsed:
                 _structured_wb = _parsed
                 _field_count = _parsed.count("\n  ")
@@ -897,10 +1006,16 @@ async def run(
     if output_format == "xlsx":
         try:
             import scope_gate as _sg
-            _sheet_shape = _sg.reference_shape(
-                grounding_path,
-                [str(m) for m in (project_ctx.get("in_scope_modules") or []) if m],
-            )
+            if register_workbook(node_id, output_format):
+                # Matching module names against a register's sheet names misfires:
+                # 'Annual Salary Review' matched 'Review Findings' and the gate then
+                # demanded a tab per module.
+                _sheet_shape = "rows"
+            else:
+                _sheet_shape = _sg.reference_shape(
+                    grounding_path,
+                    [str(m) for m in (project_ctx.get("in_scope_modules") or []) if m],
+                )
             print(f"   [scope-gate] reference organises by: {_sheet_shape}")
 
             # When the reference does NOT divide by module, the way it DOES
@@ -914,6 +1029,9 @@ async def run(
             # would just crowd the prompt.
             if _sheet_shape != "tabs":
                 _org_hint = _sg.reference_organisation_hint(grounding_path)
+                if skeleton:
+                    import reference_skeleton
+                    _org_hint = reference_skeleton.drop_history_parts(_org_hint)
                 if _org_hint:
                     print(f"   [scope-gate] reference splits into "
                           f"{_org_hint.count(chr(10) + '    - ')} parts; "
@@ -970,7 +1088,14 @@ async def run(
     try:
         with usage_scope(f"adhoc/{node['id']}"):
             draft = await run_quality_pipeline(
-                session_id=f"adhoc-{node['id']}",
+                # ONE KEY PER REQUEST, not per template. The stage cache keys on
+                # session + node + version + stage, and this used to pass
+                # f"adhoc-{node_id}" with version=1 every time — so the second run of a
+                # template in the same server process silently reused the FIRST run's
+                # research and plan, whatever its inputs (EC then Compensation, or a
+                # Delta Update planned from the original's research). Retries inside
+                # this run still share the key, which is what the cache is for.
+                session_id=f"adhoc-{node['id']}-{uuid.uuid4().hex[:12]}",
                 node=node, node_id=node["id"], version=1,
                 project_ctx=project_ctx, parent_contents=parents,
                 grounding_text=grounding_text, schema=schema,
@@ -1006,6 +1131,7 @@ async def run(
             output_format=output_format, build_prompt=build_prompt,
             stream_generate=stream_generate, sheet_shape=_sheet_shape,
             template=template,
+            allow_new_sheets=not register_workbook(node_id, output_format),
         )
         return plan, model
     except Exception as exc:

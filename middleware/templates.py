@@ -28,6 +28,15 @@ def _safe(v: Any, maxlen: int = 120) -> str:
     return s[:maxlen].strip()
 
 
+# Characters Excel forbids in a worksheet title; openpyxl raises on any of them.
+_BAD_SHEET_CHARS = re.compile(r"[\\/*?:\[\]]")
+
+
+def _sheet_title(name: Any) -> str:
+    """A worksheet title Excel accepts. Valid names come back unchanged."""
+    return _BAD_SHEET_CHARS.sub("-", _safe(name))[:31]
+
+
 def _safe_tag(name: str) -> str:
     """Make a string safe to use as an XML tag name."""
     import re
@@ -128,7 +137,7 @@ def generate_xlsx(plan: Dict, output_path: str, grounding_path: str = "") -> str
     AI_CELL_FILL = PatternFill("solid", fgColor="FFFDE7")  # light amber — AI-draft note
 
     for sheet in plan.get("sheets", []):
-        ws      = wb.create_sheet(title=_safe(sheet.get("name", "Sheet"))[:31])
+        ws      = wb.create_sheet(title=_sheet_title(sheet.get("name", "Sheet")))
         headers = [_safe(h) for h in sheet.get("headers", [])]
         rows    = sheet.get("rows", [])
         n_cols  = max(len(headers), 1)
@@ -831,52 +840,83 @@ def generate_pptx(plan: Dict, output_path: str, grounding_path: str = "") -> str
                         p.runs[0].font.name = FONT
 
         elif t == "table":
-            slide = prs.slides.add_slide(blank)
-            set_bg(slide, WHT)
-            bar = slide.shapes.add_shape(1, X(0), Y(0), X(13.33), Y(1.2))
-            bar.fill.solid()
-            bar.fill.fore_color.rgb = HDR
-            bar.line.fill.background()
-            tb = slide.shapes.add_textbox(X(0.3), Y(0.15), X(12.5), Y(0.9))
-            add_text(tb.text_frame, sl.get("title", ""), 22, True, WHT)
+            def _table_slide(heading):
+                s = prs.slides.add_slide(blank)
+                set_bg(s, WHT)
+                b = s.shapes.add_shape(1, X(0), Y(0), X(13.33), Y(1.2))
+                b.fill.solid()
+                b.fill.fore_color.rgb = HDR
+                b.line.fill.background()
+                t_box = s.shapes.add_textbox(X(0.3), Y(0.15), X(12.5), Y(0.9))
+                add_text(t_box.text_frame, heading, 22, True, WHT)
+                return s
+
             hdrs = sl.get("headers", [])
             rows = sl.get("rows", [])
-            if hdrs and rows:
-                nc  = len(hdrs)
-                nr  = len(rows)
-                tbl = slide.shapes.add_table(
-                    nr + 1, nc,
-                    X(0.5), Y(1.4),
-                    X(12.3), Y(min(nr * 0.5 + 0.5, 5.5))
-                ).table
-                # Cell type also has to scale: 18pt default in a 0.35in row on a 10in
-                # canvas overflows the row and pushes the table past the slide.
+            _title = sl.get("title", "")
+
+            if not (hdrs and rows):
+                # An empty table still earns its titled slide, exactly as before.
+                _table_slide(_title)
+            else:
+                nc = len(hdrs)
+
+                # SPLIT A TABLE THAT CANNOT PHYSICALLY FIT.
+                #
+                # A table's declared height is a MINIMUM in PowerPoint, not a clamp:
+                # rows grow to fit their text. So asking for `min(nr*0.5+0.5, 5.5)`
+                # inches bought nothing — a 60-row table still rendered 60 rows and
+                # ran off the bottom of the slide, which is the "tables overflow the
+                # page" report. Capping rows and continuing on another slide is the
+                # only fix that keeps every row.
+                #
+                # A table that already fits takes the identical single-slide path it
+                # always did, so nothing that renders correctly today changes.
+                _body_in   = _DESIGN_H - 1.4 - 0.3     # below header bar, above edge
+                _row_in    = 0.34                      # floor for an 11pt cell row
+                _max_rows  = max(1, int((_body_in - 0.4) / _row_in))
+                _chunks    = [rows[i:i + _max_rows]
+                              for i in range(0, len(rows), _max_rows)]
+
                 _cell_pt = S(11)
-                for c, h in enumerate(hdrs):
-                    cell = tbl.cell(0, c)
-                    cell.text = _safe(h, 50)
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = HDR
-                    for _p in cell.text_frame.paragraphs:
-                        for _r in _p.runs:
-                            _r.font.size = _cell_pt
-                            _r.font.color.rgb = WHT
-                            _r.font.bold = True
-                            if FONT:
-                                _r.font.name = FONT
-                for r, row in enumerate(rows):
-                    bg = BG if r % 2 == 0 else WHT
-                    for c, val in enumerate(row):
-                        if c < nc:
-                            cell = tbl.cell(r + 1, c)
-                            cell.text = _safe(val, 80)
-                            cell.fill.solid()
-                            cell.fill.fore_color.rgb = bg
-                            for _p in cell.text_frame.paragraphs:
-                                for _r in _p.runs:
-                                    _r.font.size = _cell_pt
-                                    if FONT:
-                                        _r.font.name = FONT
+                for _ci, _chunk in enumerate(_chunks):
+                    slide = _table_slide(_title if _ci == 0
+                                         else f"{_title} (cont. {_ci + 1}/{len(_chunks)})")
+                    nr  = len(_chunk)
+                    tbl = slide.shapes.add_table(
+                        nr + 1, nc,
+                        X(0.5), Y(1.4),
+                        X(12.3), Y(min(nr * 0.5 + 0.5, 5.5))
+                    ).table
+                    # Cell type also has to scale: 18pt default in a 0.35in row on a
+                    # 10in canvas overflows the row and pushes the table past the slide.
+                    for c, h in enumerate(hdrs):
+                        cell = tbl.cell(0, c)
+                        cell.text = _safe(h, 50)
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = HDR
+                        for _p in cell.text_frame.paragraphs:
+                            for _r in _p.runs:
+                                _r.font.size = _cell_pt
+                                _r.font.color.rgb = WHT
+                                _r.font.bold = True
+                                if FONT:
+                                    _r.font.name = FONT
+                    for r, row in enumerate(_chunk):
+                        # Striping follows the row's position in the WHOLE table, so a
+                        # split table keeps one continuous banding pattern.
+                        bg = BG if (_ci * _max_rows + r) % 2 == 0 else WHT
+                        for c, val in enumerate(row):
+                            if c < nc:
+                                cell = tbl.cell(r + 1, c)
+                                cell.text = _safe(val, 80)
+                                cell.fill.solid()
+                                cell.fill.fore_color.rgb = bg
+                                for _p in cell.text_frame.paragraphs:
+                                    for _r in _p.runs:
+                                        _r.font.size = _cell_pt
+                                        if FONT:
+                                            _r.font.name = FONT
 
         elif t == "chart":
             slide = prs.slides.add_slide(blank)

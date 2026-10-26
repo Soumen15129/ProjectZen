@@ -27,6 +27,14 @@ from ..config import (CTX_DRAFT, CTX_RESEARCH, CTX_PLAN, CTX_GLOSSARY, CTX_SOURC
                       CTX_GROUNDING)
 from ..jsonutil import truncate
 
+# Adhoc may widen the source limit through input_budget; outside an adhoc scope
+# override() returns the constant passed in, so cascade is unchanged.
+try:
+    from input_budget import override as _budget      # type: ignore
+except Exception:                                    # pragma: no cover
+    def _budget(field, default):
+        return default
+
 _JSON_CONTRACT = (
     'Return ONLY this JSON, nothing else:\n'
     '{"findings":[{"severity":"CRITICAL|MAJOR|MINOR|NIT","section":"...",'
@@ -142,7 +150,7 @@ def alignment(inp: ReviewInputs) -> str:
         f"ALIGNMENT REVIEW of a '{inp.node['label']}' document.\n\n"
         + (_IN_SESSION_NOTE if inp.in_session else "")
         + _block(inp, "THE SOURCE DOCUMENT (the authority on what is in scope):",
-                 inp.source_text, CTX_SOURCE)
+                 inp.source_text, _budget('stage_source_chars', CTX_SOURCE))
         + _block(inp, "THE PLAN IT WAS SUPPOSED TO EXECUTE:", inp.plan_text, CTX_PLAN)
         + f"DRAFT UNDER REVIEW (JSON):\n{truncate(inp.draft_json, CTX_DRAFT)}\n\n"
         "FIRST — SCOPE COVERAGE against the SOURCE (do this before anything else, and "

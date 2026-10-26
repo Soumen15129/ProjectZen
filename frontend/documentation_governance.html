@@ -2149,6 +2149,39 @@ input[type="file"] { display: none; }
       </div>
     </div>
 
+    <!-- GENERATION MODE — New Generation vs Delta Update.
+         Mirrors the cascade mode switch so both flows read the same way, but the delta
+         here is SINGLE-DOCUMENT: adhoc takes many inputs and produces one output, so
+         there is no downstream to propagate to and no affected-nodes step.
+         Hidden entirely on portals not listed in DELTA_PORTALS. -->
+    <div class="card" id="adhocModeCard" style="display:none">
+      <div class="card-label">
+        <span class="step-n" style="background:var(--acc-bg);border-color:var(--acc-b);color:var(--acc-l)">◆</span>
+        <span class="label-txt">Generation Mode</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="casc-mode-btn on" id="adhocModeNew" onclick="setAdhocMode('new')" style="flex:1">
+          <span style="font-size:16px">✦</span><span>New Generation</span>
+        </button>
+        <button class="casc-mode-btn" id="adhocModeDelta" onclick="setAdhocMode('delta')" style="flex:1">
+          <span style="font-size:16px">⚡</span><span>Delta Update</span>
+        </button>
+      </div>
+      <div id="adhocDeltaSection" style="display:none;margin-top:16px">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">Update Which Version?</label>
+        <select id="adhocDeltaSourceSel" onchange="onDeltaSourceChange()">
+          <option value="">— Select a previous document —</option>
+        </select>
+        <div id="adhocDeltaSourceNote" style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5"></div>
+        <label style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:1px;text-transform:uppercase;display:block;margin:16px 0 6px">What Changed?</label>
+        <textarea id="adhocDeltaChangeText" rows="4"
+          placeholder="e.g. Week 12 update — EC configuration sign-off completed; payroll parallel run moved to 15-Nov-2026; new amber risk on integration testing capacity, owner PMO."></textarea>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
+          Everything not mentioned here is carried forward from the selected version unchanged.
+        </div>
+      </div>
+    </div>
+
     <!-- 02 INPUT FILE — the mandatory step. Sits directly after Template because it is
          the one thing generation cannot proceed without; Reference File and User Prompt
          are both refinements and follow it. -->
@@ -2917,6 +2950,11 @@ function onOutputTypeChange(){
   // on any browser that had not itself performed the admin upload.
   updateTemplateInfo(ot);
 
+  // Delta sources are per-template, so a template switch invalidates the list. Reload
+  // rather than clear, so someone who is already in Delta mode is not silently left
+  // with an empty picker.
+  if(window._adhocDeltaReady && _adhocMode === 'delta') loadDeltaSources();
+
   if(isAdmin){
     // Load saved system prompt
     document.getElementById('systemPrompt').value = cfg.prompt||'';
@@ -3179,6 +3217,24 @@ function _adhocRevealSteps(on){
   ['inputFileCard','userRefCard','userPromptCard','outputFilenameCard','outputFormatCard']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display=show; });
 
+  // Mode card follows the same reveal, but only where delta is offered. Data Model
+  // Agent never shows it — a deterministic converter has no "what changed since".
+  //
+  // GATED ON window._adhocDeltaReady, following the same rule as the userRefExt block
+  // further down. initUserMode() calls this function, and DELTA_PORTALS / _adhocMode
+  // are `const`/`let` declared BELOW it — if the init call is ever moved earlier they
+  // are in their temporal dead zone and touching them throws a ReferenceError that
+  // kills the whole inline script. `typeof` is no protection: on a TDZ binding it
+  // throws too. A window flag is the only check that cannot fault.
+  if(window._adhocDeltaReady){
+    const modeCard = document.getElementById('adhocModeCard');
+    if(modeCard) modeCard.style.display =
+      ((on || isAdmin) && portalSupportsDelta()) ? 'block' : 'none';
+    // Collapsing the form drops back to New Generation, so a template switch can never
+    // leave a stale source document selected against a different document type.
+    if(!on && !isAdmin && _adhocMode === 'delta') setAdhocMode('new');
+  }
+
   const genBtn = document.getElementById('genBtn');
   if(genBtn) genBtn.style.display = (on || isAdmin) ? 'flex' : 'none';
   const genBtnRow = document.querySelector('.gen-btn-row');
@@ -3192,6 +3248,93 @@ function _adhocRevealSteps(on){
     if(rt && rt.checked){ rt.checked=false; onUserRefToggle(); }
     if(pt && pt.checked){ pt.checked=false; onUserPromptToggle(); }
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ADHOC DELTA UPDATE — single-document versioning
+   ═══════════════════════════════════════════════════════════════
+   Adhoc is many-inputs-to-ONE-output, so a delta here revises that one document
+   (v1 -> v2) and there is nothing downstream to propagate to. That is the whole
+   difference from the cascade delta, which exists to push a change through 32
+   dependent documents.
+
+   Data Model Agent is absent on purpose: it is a deterministic XML converter, so
+   "what changed since last time" has no meaning for it. */
+const DELTA_PORTALS = ['governance', 'sf', 'status_report', 'testscript'];
+
+let _adhocMode = 'new';
+let _deltaSources = [];
+
+function portalSupportsDelta(){
+  const p = currentPortal();
+  // No portal (page opened directly) shows governance + sf, both of which support it.
+  return p ? DELTA_PORTALS.includes(p) : true;
+}
+
+function setAdhocMode(mode){
+  _adhocMode = (mode === 'delta') ? 'delta' : 'new';
+  const nb = document.getElementById('adhocModeNew');
+  const db = document.getElementById('adhocModeDelta');
+  const sec = document.getElementById('adhocDeltaSection');
+  if(nb) nb.classList.toggle('on', _adhocMode === 'new');
+  if(db) db.classList.toggle('on', _adhocMode === 'delta');
+  if(sec) sec.style.display = _adhocMode === 'delta' ? '' : 'none';
+  if(_adhocMode === 'delta') loadDeltaSources();
+  refreshDeltaHint();
+}
+
+// Populated from /adhoc/delta/sources, which filters out cascade-generated documents
+// server-side. Doing it there rather than here matters: an adhoc delta that forked a
+// cascade deliverable would leave two version histories diverging with nothing
+// recording it.
+async function loadDeltaSources(){
+  const sel = document.getElementById('adhocDeltaSourceSel');
+  const tmpl = (document.getElementById('outputType')||{}).value || '';
+  if(!sel) return;
+  if(!tmpl){ sel.innerHTML = '<option value="">— Choose a Template first —</option>'; return; }
+  sel.innerHTML = '<option value="">— Loading… —</option>';
+  try{
+    const r = await fetch(srv()+'/adhoc/delta/sources?template='+encodeURIComponent(tmpl));
+    const d = await r.json();
+    _deltaSources = (d && d.sources) || [];
+  }catch(_){ _deltaSources = []; }
+  if(!_deltaSources.length){
+    sel.innerHTML = '<option value="">— No previous version of this document —</option>';
+    refreshDeltaHint();
+    return;
+  }
+  sel.innerHTML = '<option value="">— Select a previous document —</option>'
+    + _deltaSources.map(s=>{
+        const when = String(s.createdAt||'').slice(0,10);
+        // _logEscSafe, not esc: this page has no esc(). File names are user-supplied
+        // and land in innerHTML here, so they must be escaped.
+        return '<option value="'+_logEscSafe(s.id)+'">v'+s.version+' · '
+             + _logEscSafe(s.fileName||s.id) + ' · '+when+'</option>';
+      }).join('');
+  refreshDeltaHint();
+}
+
+function onDeltaSourceChange(){ refreshDeltaHint(); }
+
+// Set only once the bindings above exist. _adhocRevealSteps() reads this before
+// touching any of them — see the note there.
+window._adhocDeltaReady = true;
+
+function refreshDeltaHint(){
+  const note = document.getElementById('adhocDeltaSourceNote');
+  if(!note) return;
+  if(_adhocMode !== 'delta'){ note.textContent=''; return; }
+  const id = (document.getElementById('adhocDeltaSourceSel')||{}).value || '';
+  const hit = _deltaSources.find(s=>s.id===id);
+  if(!id){
+    note.textContent = _deltaSources.length
+      ? 'Pick the version this update builds on. It is reproduced in full, then your change is applied.'
+      : 'Generate this document once first — a Delta Update needs a previous version to build on.';
+    return;
+  }
+  // textContent, so no escaping is needed or wanted here.
+  note.textContent = 'This update will be saved as v' + (Number(hit && hit.version || 1) + 1)
+                   + ', as a new file. ' + (hit ? hit.fileName : '') + ' is kept.';
 }
 
 function onUserPromptToggle(){
@@ -3349,6 +3492,22 @@ async function pingServer(){
 
 function setStep(n,state,time){ const el=document.getElementById('p'+n); el.className='step '+state; if(time) document.getElementById('t'+n).textContent=time+'s'; }
 function showErr(msg){ const b=document.getElementById('errBox'); b.textContent='⚠ '+msg; b.className='err-box show'; }
+
+// A blocked generation produced NO file on purpose. That needs to be unmissable:
+// after a long wait an inline banner is easy to scroll past, and a user who misses
+// it goes looking for a download that was never created. The inline box is filled
+// too, so the reason is still there once the dialog is dismissed.
+function showBlocked(msg){
+  const ov = document.getElementById('blockOverlay');
+  showErr(msg);
+  if(!ov) return;
+  document.getElementById('blockBody').textContent = msg;
+  ov.className = 'modal-overlay open';
+}
+function hideBlocked(){
+  const ov = document.getElementById('blockOverlay');
+  if(ov) ov.className = 'modal-overlay';
+}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -3626,7 +3785,33 @@ async function generate(isRefinement=false){
   // rule: a prompt alone gives Claude nothing of the project to work from, so what came
   // back was a plausible-looking document invented from the template shape. Requiring
   // the source removes that path rather than warning about it.
-  if(!isAdmin){
+  // Delta Update has its own two requirements, checked before the input-file rule
+  // because in this mode the PREVIOUS VERSION is the source document — the reason the
+  // input file stops being mandatory below.
+  if(_adhocMode === 'delta'){
+    const dsrc = (document.getElementById('adhocDeltaSourceSel')||{}).value || '';
+    const dchg = ((document.getElementById('adhocDeltaChangeText')||{}).value || '').trim();
+    if(!dsrc){
+      document.getElementById('progCard').className='prog-card show';
+      showErr('Choose which version to update. A Delta Update revises an existing document — if there is no previous version listed, run a New Generation first.');
+      return;
+    }
+    if(!dchg){
+      document.getElementById('progCard').className='prog-card show';
+      showErr('Describe what changed. Without it there is nothing to apply, and the update would simply reproduce the version you selected.');
+      return;
+    }
+  }
+
+  // The Input File is REQUIRED for a New Generation. This replaced an "either a User
+  // Prompt OR an Input File" rule: a prompt alone gives Claude nothing of the project
+  // to work from, so what came back was a plausible-looking document invented from the
+  // template shape. Requiring the source removes that path rather than warning about it.
+  //
+  // A Delta Update is exempt because it is not starting from nothing — the selected
+  // version is carried forward in full, and fresh input files are optional extra
+  // material on top of it.
+  if(!isAdmin && _adhocMode !== 'delta'){
     if(!inputFile){
       document.getElementById('progCard').className='prog-card show';
       showErr('Attach an Input File to continue — step 02. Claude needs your source document (SOW, SP51, workshop notes, process maps) to generate from.');
@@ -3715,6 +3900,15 @@ async function generate(isRefinement=false){
           assistantMemory: assistantMemory || null,  // null on turn 1
           isRefinement,
           username:        session ? session.username : 'unknown',
+          // Delta Update. Empty strings in New Generation mode, which is exactly what
+          // the backend treats as "ordinary generate" — every delta branch there is
+          // gated on deltaSourceId being non-empty.
+          deltaSourceId:   _adhocMode === 'delta'
+                             ? ((document.getElementById('adhocDeltaSourceSel')||{}).value || '')
+                             : '',
+          deltaChangeText: _adhocMode === 'delta'
+                             ? ((document.getElementById('adhocDeltaChangeText')||{}).value || '').trim()
+                             : '',
         }),
       });
     } finally {
@@ -3726,8 +3920,16 @@ async function generate(isRefinement=false){
     setStep(3,'done',((Date.now()-t2)/1000).toFixed(1));
 
     if(!res.ok){
-      const err=await res.json().catch(()=>({error:`Server error ${res.status}`}));
-      throw new Error(err.error||`Server error ${res.status}`);
+      // FastAPI returns {"detail": ...}. This read err.error, which is never present,
+      // so every explanation the backend sent was replaced by "Server error 500" and
+      // the user was told nothing. Read detail first, keep error as a fallback.
+      const err = await res.json().catch(()=>({}));
+      const raw = err.detail || err.error || `Server error ${res.status}`;
+      const e = new Error(typeof raw === 'string' ? raw : JSON.stringify(raw));
+      // A refusal is a decision, not a crash: no file was produced and the message
+      // says what to do about it, so it gets the modal rather than the inline box.
+      e.blocked = (res.status === 503 || res.status === 400);
+      throw e;
     }
 
     // Step 4: Python template running
@@ -3750,6 +3952,19 @@ async function generate(isRefinement=false){
           rep.files.map(f => `${f.name} (${Math.round(f.chars/1000)}K chars)`).join(', '),
           'success');
       }
+    }
+
+    // Confirm the version a Delta Update landed on. Without this the run looks
+    // identical to a New Generation: same file, same download, nothing saying which
+    // version it became or that the previous one is still there. `data.version` is
+    // null on a New Generation, so this never fires outside delta mode.
+    if (data.version && data.version.version) {
+      showToast('Saved as v' + data.version.version + ' — based on '
+        + (data.version.basedOn || 'the selected version')
+        + ', which is kept in the library.', 'success');
+      // Refresh so the document just created is immediately selectable as the base
+      // for the NEXT delta, without a page reload.
+      if (_adhocMode === 'delta') loadDeltaSources();
     }
 
     const parts=[`Template: ${outputType}`,'Claude AI'];
@@ -3775,7 +3990,7 @@ async function generate(isRefinement=false){
       preview:      data.preview || '',
     });
 
-  } catch(err){ showErr(err.message); }
+  } catch(err){ if(err && err.blocked) showBlocked(err.message); else showErr(err.message); }
   btn.disabled = false;
   if(refineBtn2) refineBtn2.disabled = false;
   btn.innerHTML = '✦ &nbsp;Generate with Claude Agent';
@@ -5501,6 +5716,31 @@ const PORTAL_TEMPLATES = {
     ],
   },
 
+  // Status Report Generator. ADHOC-ONLY, and its node ids are deliberately NOT
+  // knowledge-graph nodes — the same decision as `test-script` above, for two reasons.
+  //
+  // First, model tier: synth_node() defaults an unknown id to T2, and TIER_MODELS maps
+  // T2 to Opus. Pointing these at the real `status-templates` node would inherit its
+  // T4 and silently drop the deck to Sonnet.
+  //
+  // Second, semantics: `status-templates` is typed "Template", owner "PMO", trigger
+  // "Governance setup" — it describes the blank TEMPLATE artefact, not a filled weekly
+  // report. Those fields are read straight into the generation prompt by
+  // _build_gen_prompt, so inheriting them would brief the model for the wrong document.
+  //
+  // Neither id exists in the graph, so no cascade wave maths change.
+  //
+  // Monthly is listed but has no reference configured yet. That is deliberate and safe:
+  // applyFormatLock() disables Generate for any template without a reference, so it
+  // self-gates until an admin attaches one.
+  status_report: {
+    label: 'Status Report Generator',
+    docs: [
+      { name: 'Weekly Status Report',  node: 'status-weekly'  },
+      { name: 'Monthly Status Report', node: 'status-monthly' },
+    ],
+  },
+
   // Data Model Agent. Not a document at all: one configuration workbook in,
   // SuccessFactors Employee Central data-model XML out. The backend routes on this
   // exact template name, so it must not be renamed without changing
@@ -5525,7 +5765,7 @@ const PORTAL_TEMPLATES = {
 const UTILITY_TEMPLATES = [];
 
 // Portals that offer a single template and no cascade.
-const ADHOC_ONLY_PORTALS = ['testscript', 'workbook'];
+const ADHOC_ONLY_PORTALS = ['testscript', 'workbook', 'status_report'];
 
 // Per-portal input constraints. Only the Data Model Agent narrows them: it reads one
 // configuration workbook, and letting someone attach four decks to it would produce
@@ -6309,5 +6549,22 @@ async function askLibrary() {
 }
 
 </script>
+
+<!-- Blocked-generation dialog.
+     Shown when the server refuses to produce a file rather than producing a poor
+     one. Deliberately has a single button: there is no partial result to keep or
+     discard, so there is no choice to offer - only an explanation to acknowledge.
+     onclick is inline so the handler cannot depend on script execution order. -->
+<div class="modal-overlay" id="blockOverlay">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title">Presentation not generated</div>
+    <div class="modal-sub">No file was created, so there is nothing partial to download.</div>
+    <div id="blockBody" style="font-size:13px; line-height:1.7; color:var(--text);
+                               white-space:pre-wrap; max-height:46vh; overflow-y:auto;"></div>
+    <div class="modal-btns">
+      <button class="modal-btn save" onclick="hideBlocked()">Got it</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
