@@ -18,6 +18,15 @@ from ..jsonutil import truncate
 from ..llm import complete
 from ..refusal import is_refusal
 
+# Adhoc may widen the source limits below through input_budget; outside an adhoc scope
+# override() returns the constant passed in, so cascade is unchanged. Guarded, like
+# quality/llm.py's transport import, so the package still works without it.
+try:
+    from input_budget import override as _budget      # type: ignore
+except Exception:                                    # pragma: no cover
+    def _budget(field, default):
+        return default
+
 _SYSTEM = (
     "You are a senior Salesforce delivery consultant assembling source material for "
     "another consultant to write from. You do not write the deliverable itself. You "
@@ -28,8 +37,9 @@ _SYSTEM = (
 def build_prompt(node: dict, project_ctx: Dict[str, Any], parent_contents: Dict[str, str],
                  grounding_text: str, cascade_glossary: str = "") -> str:
     parents = ""
-    for pid, content in list((parent_contents or {}).items())[:6]:
-        parents += f"\n--- parent document: {pid} ---\n{truncate(content, CTX_SOURCE)}\n"
+    for pid, content in list((parent_contents or {}).items())[:_budget('stage_max_sources', 6)]:
+        parents += (f"\n--- parent document: {pid} ---\n"
+                    f"{truncate(content, _budget('stage_source_chars', CTX_SOURCE))}\n")
 
     grounding = ""
     if grounding_text:
@@ -40,7 +50,7 @@ def build_prompt(node: dict, project_ctx: Dict[str, Any], parent_contents: Dict[
         f"(phase: {node.get('phase','')}, type: {node.get('type','')}, "
         f"tier: {node.get('tier','')}).\n\n"
         "Do NOT write the document. Produce the research pack its author will build from.\n\n"
-        f"PROJECT CONTEXT:\n{truncate(project_ctx, CTX_PROJECT)}\n"
+        f"PROJECT CONTEXT:\n{truncate(project_ctx, _budget('stage_ctx_chars', CTX_PROJECT))}\n"
         f"{parents}{grounding}"
         f"{as_prompt_block(cascade_glossary)}\n"
         "PRODUCE (markdown, compact):\n"

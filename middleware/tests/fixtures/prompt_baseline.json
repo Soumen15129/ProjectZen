@@ -1,0 +1,275 @@
+{
+ "cascade/build_gen_prompt": [
+  {
+   "kind": "direct",
+   "len": 563184,
+   "sha": "235670cddb2c446a66b5"
+  }
+ ],
+ "cascade/build_gen_prompt_delta": [
+  {
+   "kind": "direct",
+   "len": 567506,
+   "sha": "9a269e79dd04f9204141"
+  }
+ ],
+ "cascade/extract_project_context": [
+  {
+   "kind": "agent2",
+   "len": 40860,
+   "sha": "92cff5b2af1aa0fd37ee"
+  }
+ ],
+ "cascade/glossary": [
+  {
+   "kind": "text",
+   "len": 61489,
+   "sha": "a4f80c0195ff8dfc5e59"
+  }
+ ],
+ "cascade/quality_pipeline_T1": [
+  {
+   "kind": "text",
+   "len": 301912,
+   "sha": "511e94a47aae92a1c4ab"
+  },
+  {
+   "kind": "text",
+   "len": 42124,
+   "sha": "896b8c8fc913d57870fc"
+  },
+  {
+   "kind": "review",
+   "len": 42359,
+   "sha": "47d3d578dfedd8c950ba"
+  },
+  {
+   "kind": "review",
+   "len": 42450,
+   "sha": "79ddd14d9b1fac8849aa"
+  },
+  {
+   "kind": "review",
+   "len": 2910,
+   "sha": "2c7901efac21c85f206b"
+  },
+  {
+   "kind": "review",
+   "len": 2910,
+   "sha": "2c7901efac21c85f206b"
+  },
+  {
+   "kind": "generate",
+   "len": 1826,
+   "sha": "6b35bc7024dfd413db0d"
+  },
+  {
+   "kind": "review",
+   "len": 42359,
+   "sha": "47d3d578dfedd8c950ba"
+  },
+  {
+   "kind": "review",
+   "len": 42450,
+   "sha": "79ddd14d9b1fac8849aa"
+  }
+ ],
+ "adhoc/small_single_20k": [
+  {
+   "kind": "agent2",
+   "len": 20860,
+   "sha": "0ce9ba26018356030917"
+  },
+  {
+   "kind": "text",
+   "len": 21975,
+   "sha": "9374fa733e24c4ee475c"
+  },
+  {
+   "kind": "text",
+   "len": 2637,
+   "sha": "4dd301f81f21a5c4b4ec"
+  },
+  {
+   "kind": "generate",
+   "len": 24663,
+   "sha": "42dbc7f30526d2fba4a9"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 22528,
+   "sha": "4cd5af25d85a15bd185e"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "generate",
+   "len": 1885,
+   "sha": "604355ca8b4213c618c1"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 22528,
+   "sha": "4cd5af25d85a15bd185e"
+  }
+ ],
+ "adhoc/large_single_150k_sheet": [
+  {
+   "kind": "agent2",
+   "len": 40860,
+   "sha": "017432e09f2c5f233c53"
+  },
+  {
+   "kind": "generate",
+   "len": 88961,
+   "sha": "be898d8146d6f0c5fb5b"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "4a0d8501fc8bcab70f8a"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "generate",
+   "len": 1885,
+   "sha": "604355ca8b4213c618c1"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "4a0d8501fc8bcab70f8a"
+  }
+ ],
+ "adhoc/multi_file_CHANGES_EXPECTED": [
+  {
+   "kind": "agent2",
+   "len": 40860,
+   "sha": "579d4e7a346af5ebc0ba"
+  },
+  {
+   "kind": "generate",
+   "len": 84663,
+   "sha": "ae7a55f7d6c6c5654489"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "5d248dca18b54e8ee81f"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "generate",
+   "len": 1885,
+   "sha": "604355ca8b4213c618c1"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "5d248dca18b54e8ee81f"
+  }
+ ],
+ "adhoc/delta_prefixed_CHANGES_EXPECTED": [
+  {
+   "kind": "agent2",
+   "len": 40860,
+   "sha": "31c677bc67375c726a6e"
+  },
+  {
+   "kind": "generate",
+   "len": 64796,
+   "sha": "9978c2d4ff5c84ea99c1"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "a6c8892c0e8d18a77f15"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "review",
+   "len": 2918,
+   "sha": "8040db65f8d977e96714"
+  },
+  {
+   "kind": "generate",
+   "len": 1885,
+   "sha": "604355ca8b4213c618c1"
+  },
+  {
+   "kind": "review",
+   "len": 2361,
+   "sha": "b3d97da5a32f8d3050e4"
+  },
+  {
+   "kind": "review",
+   "len": 42458,
+   "sha": "a6c8892c0e8d18a77f15"
+  }
+ ]
+}

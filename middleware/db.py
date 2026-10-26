@@ -247,6 +247,106 @@ async def get_content_summary(file_id: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ADHOC VERSION LINEAGE  — a SIDE table, deliberately not a column on `documents`
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# `documents` is mirrored into the documents_fts virtual table by two triggers
+# (documents_ai / documents_au) that name its columns explicitly. Adding a column
+# there means touching a table the library, search and grounding all read, plus the
+# triggers that shadow it — for information only the delta feature needs.
+#
+# A side table keyed on documents.id carries the same information and cannot affect
+# any existing read path: everything that queries `documents` today returns exactly
+# what it returned before.
+#
+# ABSENCE IS MEANINGFUL. A document with no row here is version 1 — which is what
+# makes every one of the 49 documents already in the library a valid delta source
+# without a backfill or a migration.
+
+async def init_adhoc_versions():
+    """Create the adhoc version-lineage table. Called at startup after init_db()."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS adhoc_versions (
+                doc_id      TEXT PRIMARY KEY,
+                root_id     TEXT NOT NULL,
+                parent_id   TEXT NOT NULL,
+                version     INTEGER NOT NULL,
+                delta_notes TEXT DEFAULT '',
+                created_at  TEXT NOT NULL
+            )
+        """)
+        # Listing a lineage is the common read, so index the root.
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_adhoc_versions_root
+            ON adhoc_versions(root_id)
+        """)
+        await db.commit()
+
+
+async def get_adhoc_version(doc_id: str) -> Optional[Dict[str, Any]]:
+    """Lineage row for one document, or None when it is an unversioned original."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM adhoc_versions WHERE doc_id = ?", (doc_id,))
+            row = await cur.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        print(f"⚠ DB adhoc_version read error: {e}")
+        return None
+
+
+async def next_adhoc_version(parent_doc_id: str) -> Dict[str, Any]:
+    """
+    Where a delta derived from `parent_doc_id` belongs: its root and version number.
+
+    A parent with no lineage row is itself version 1 and becomes the root, so the
+    first delta on any pre-existing library document produces v2 with no migration.
+    """
+    parent = await get_adhoc_version(parent_doc_id)
+    if parent:
+        return {"root_id": parent["root_id"], "version": int(parent["version"]) + 1}
+    return {"root_id": parent_doc_id, "version": 2}
+
+
+async def save_adhoc_version(doc_id: str, root_id: str, parent_id: str,
+                             version: int, delta_notes: str = "") -> bool:
+    """Record one derived version. Never raises — lineage must not fail a generation."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO adhoc_versions
+                    (doc_id, root_id, parent_id, version, delta_notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (doc_id, root_id, parent_id, int(version),
+                 (delta_notes or "")[:2000], datetime.utcnow().isoformat()),
+            )
+            await db.commit()
+        return True
+    except Exception as e:
+        print(f"⚠ DB adhoc_version save error: {e}")
+        return False
+
+
+async def list_adhoc_lineage(root_id: str) -> List[Dict[str, Any]]:
+    """Every derived version under one root, oldest first. Excludes the root itself."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM adhoc_versions WHERE root_id = ? ORDER BY version",
+                (root_id,))
+            return [dict(r) for r in await cur.fetchall()]
+    except Exception as e:
+        print(f"⚠ DB adhoc_lineage read error: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CASCADE TABLES  — added as addon; existing tables untouched
 # ═══════════════════════════════════════════════════════════════════════════════
 

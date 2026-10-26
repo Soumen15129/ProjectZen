@@ -1807,7 +1807,7 @@ function moveSel(d){const rows=[...document.querySelectorAll('.pr')];if(!rows.le
 /* ---------------- navigation ---------------- */
 function go(view){state.view=view;if(view==='catalog')state.ws='all';render();document.querySelector('main').scrollTop=0;}
 function openAgent(id){
-  if(['status_report_gen','docs_library'].includes(id)){toast('🚧 Under Construction: Coming Soon!');return;}
+  if(['docs_library'].includes(id)){toast('🚧 Under Construction: Coming Soon!');return;}
   // Both tiles open the same page; the portal tells it which document family
   // to offer, so Governance users are not shown Functional templates.
   if(id==='governance_doc'){window.parent.navigateToPage('documentation_governance.html?portal=governance');return;}
@@ -1815,6 +1815,7 @@ function openAgent(id){
   if(id==='sf_functional_doc'){window.parent.navigateToPage('documentation_governance.html?portal=sf');return;}
   // Adhoc-only portal: one template, no cascade. Same page, different catalogue.
   if(id==='test_script_gen'){window.parent.navigateToPage('documentation_governance.html?portal=testscript');return;}
+  if(id==='status_report_gen'){window.parent.navigateToPage('documentation_governance.html?portal=status_report');return;}
   if(id==='data_model_agent'){window.parent.navigateToPage('documentation_governance.html?portal=workbook');return;}
   if(id==='doc_grounding'){window.parent.navigateToPage('Documentation_UserPage.html#grounding');return;}
   state.agent=id;state.view='workspace';render();document.querySelector('main').scrollTop=0;

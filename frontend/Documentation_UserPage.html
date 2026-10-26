@@ -1204,6 +1204,19 @@ Examples:
           <optgroup label="Test Script Generator">
             <option>Test Script</option>
           </optgroup>
+          <!-- Status Report Generator. These names are the lookup keys in
+               adhoc_template_config, and they must match PORTAL_TEMPLATES.status_report
+               in documentation_governance.html exactly — the generate page sends the
+               template NAME and the backend resolves the reference by that string, so a
+               rename on one side silently unconfigures the template on the other.
+
+               Weekly grounds on SF_Weekly_Status_Template_v2.0.pptx. Monthly is listed
+               so it can be configured when its reference exists; until then the generate
+               page disables Generate for it rather than producing an ungrounded deck. -->
+          <optgroup label="Status Report">
+            <option>Weekly Status Report</option>
+            <option>Monthly Status Report</option>
+          </optgroup>
           <!-- The Data Model Agent grounds on FOUR reference structures, one per SAP
                data model. These names are the routing keys in
                data_model_agent.TEMPLATE_KEYS — renaming one here silently unconfigures

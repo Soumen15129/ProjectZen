@@ -14,7 +14,7 @@
 ; The payload is assembled by installer\build.ps1 into installer\payload\ first.
 
 #define AppName        "ProjectZen"
-#define AppVersion     "1.0.0"
+#define AppVersion     "1.4.0"
 #define AppPublisher   "Accenture"
 #define AppExeName     "Start-ProjectZen.bat"
 

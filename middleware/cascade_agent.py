@@ -45,6 +45,15 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from llm_client import complete
 
+# Adhoc reads the shared limits below through input_budget.override(). Outside an adhoc
+# scope it returns the constant passed in, so cascade's values are unchanged. Guarded
+# so that a missing module can only ever mean "use the constant".
+try:
+    from input_budget import override as _budget
+except Exception:                         # pragma: no cover
+    def _budget(field, default):
+        return default
+
 try:
     from llm_client import usage_scope, usage_summary
 except ImportError:                       # a transport without telemetry
@@ -168,9 +177,11 @@ def _doc_semaphore() -> asyncio.Semaphore:
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _safe_str(v: Any, maxlen: int = 120) -> str:
+def _safe_str(v: Any, maxlen: Optional[int] = None) -> str:
     if v is None:
         return ""
+    if maxlen is None:
+        maxlen = _budget('cell_chars', 120)
     s = str(v)
     s = "".join(c if 32 <= ord(c) < 127 else " " for c in s)
     return s[:maxlen].strip()
@@ -312,7 +323,7 @@ async def extract_project_context(input_text: str, session_id: str) -> Dict[str,
     prompt = (
         f"Extract all project facts from the document below into the JSON schema.\n\n"
         f"SCHEMA:\n{_CTX_SCHEMA}\n\n"
-        f"SOURCE DOCUMENT:\n{input_text[:40000]}\n\n"
+        f"SOURCE DOCUMENT:\n{input_text[:_budget('agent2_chars', 40000)]}\n\n"
         f"Return ONLY valid JSON. No markdown. No explanation."
     )
 
@@ -402,16 +413,17 @@ def _build_gen_prompt(
     Defaults to "", so every existing caller is unaffected.
     """
 
-    proj_json = json.dumps(project_ctx, indent=2)[:MAX_CTX_CHARS]
+    proj_json = json.dumps(project_ctx, indent=2)[:_budget('gen_ctx_chars', MAX_CTX_CHARS)]
     impact    = get_change_impact(node_id)
 
     parent_block = ""
     if parent_contents:
         parent_block = "\n\nPARENT DOCUMENTS (inputs to this document — use their data):\n"
-        for pid, content in list(parent_contents.items())[:6]:
+        for pid, content in list(parent_contents.items())[:_budget('gen_max_sources', 6)]:
             pnode  = get_node(pid)
             plabel = pnode["label"] if pnode else pid
-            parent_block += f"\n--- {plabel} ---\n{content[:MAX_SOURCE_CHARS]}\n"
+            parent_block += (f"\n--- {plabel} ---\n"
+                             f"{content[:_budget('gen_source_chars', MAX_SOURCE_CHARS)]}\n")
 
     grounding_block = ""
     if grounding_text:
@@ -501,7 +513,7 @@ def _build_gen_prompt(
         f"{extra_blocks}"
         f"HARD RULES:\n"
         f"1. Return ONLY valid JSON. No markdown. No explanation. No backticks.\n"
-        f"2. Every string: max 120 chars, ASCII only.\n"
+        f"2. Every string: max {_budget('cell_chars', 120)} chars, ASCII only.\n"
         f"3. No trailing commas.\n"
         f"4. Numbers in values arrays must be JSON numbers, not strings.\n"
         f"5. Return ONLY the JSON object, nothing else."

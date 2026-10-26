@@ -12,7 +12,14 @@ pydantic>=2.0
 
 # ── Claude Agent SDK (runs via the local `claude` CLI, authenticated against ──
 # ── the user's Claude Enterprise seat — no ANTHROPIC_API_KEY) ──────────────────
-claude-agent-sdk>=0.2.0
+# Upper cap because 0.2.160 shipped WITHOUT a win_amd64 wheel — macOS and Linux
+# wheels only, plus an sdist. On Windows pip then falls back to that sdist, whose
+# hatchling build backend cannot load inside the installer's embeddable Python (its
+# ._pth disables site, which breaks pip's isolated build), and a colleague's plain
+# `pip install` needs a full build toolchain it may not have. 0.2.159 and every
+# earlier release DO publish a Windows wheel. Raise this ceiling once the SDK
+# restores the win_amd64 wheel (check: pip index versions claude-agent-sdk).
+claude-agent-sdk>=0.2.0,<0.2.160
 
 # ── LangGraph + LangSmith (agent orchestration & observability) ────────────────
 langgraph>=0.2.0
